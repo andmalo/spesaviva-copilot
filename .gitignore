@@ -1,0 +1,21 @@
+# Ambienti e dipendenze
+.venv/
+venv/
+node_modules/
+
+# Segreti
+.env
+
+# File generati da Python e Jupyter
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Database vettoriale e grafici generati (si ricreano dagli script)
+chroma_data/
+data_agent/charts/
+
+# Sistema operativo ed editor
+.DS_Store
+Thumbs.db
+.vscode/
