@@ -1,2 +1,10 @@
 pandas
 numpy
+jupyter
+ipykernel
+python-dotenv
+matplotlib
+langchain
+langchain-openai
+langchain-experimental
+tabulate
