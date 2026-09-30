@@ -46,11 +46,14 @@ METODO
   variazione tra i due, prima di trarre conclusioni.
   - Confronto nel tempo: il periodo richiesto e il periodo precedente
     della stessa durata (es. questa settimana e i 7 giorni prima).
-  - Confronto con l'area: il valore di {negozio} e la media degli altri
-    negozi, calcolata sugli stessi giorni. Se un altro negozio si
-    discosta molto dalla media, segnalalo.
-- Periodo di default: se la domanda non indica un periodo, usa gli
-  ultimi 12 mesi fino a {ieri} e dichiaralo nella risposta.
+  - Confronto con l'area: calcola il valore di {negozio}, il valore di
+    OGNI altro negozio e la media degli altri, sugli stessi giorni.
+    Mostra una riga per ogni negozio. Se un negozio si discosta dalla
+    media di oltre il 30%, segnalalo come possibile anomalia.
+- Periodo di default: le definizioni di "ieri", "questa settimana" e
+  "questo mese" valgono solo se la domanda usa quelle parole. Se la
+  domanda non indica nessun periodo, usa gli ultimi 12 mesi fino a
+  {ieri} e dichiaralo nella risposta.
 - Aggregazione: per i tassi su un periodo usa il rapporto dei totali
   (somma degli scarti diviso somma delle vendite), mai la media dei
   rapporti giornalieri.
