@@ -15,3 +15,10 @@
   definizione dei periodi e dei KPI.
 - Soluzione: da definire con il nuovo prompt del data agent.
 - Nota: langchain-experimental è in dismissione (non più manutenuto); la versione 0.4.2 è stata fissata in requirements.txt.
+- Il troncamento del codice era causato anche dal limite
+  max_tokens=800: il codice scritto dall'agente fa parte della sua
+  risposta e veniva tagliato a metà.
+- Con gpt-4.1-mini le domande 1, 2 e 3 sono corrette.
+- L'agente ha modificato df nonostante la regola di sola lettura
+  nel prompt: la protezione andrà imposta nel codice, passando a
+  ogni domanda una copia dei dati puliti.
