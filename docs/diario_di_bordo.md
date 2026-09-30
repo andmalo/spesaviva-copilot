@@ -22,3 +22,16 @@
 - L'agente ha modificato df nonostante la regola di sola lettura
   nel prompt: la protezione andrà imposta nel codice, passando a
   ogni domanda una copia dei dati puliti.
+
+## 2026-09-30 – RAG: indicizzazione e ricerca
+- Risultato: 32 chunk (24 manuale, 8 scheda NEG01). Sulle 8 domande
+  RAG la sezione giusta è 7 volte al primo posto e 1 volta al
+  secondo, mai assente.
+- Scelta di k=3: nella domanda sui ribassi tre sezioni hanno distanze
+  quasi uguali (0,229-0,258); con k=1 la risposta sarebbe stata
+  incompleta.
+- Le sezioni pertinenti hanno distanza tra 0,23 e 0,33, quelle fuori
+  tema quasi sempre oltre 0,40: possibile soglia per riconoscere le
+  domande a cui il manuale non risponde.
+- Il client JS di Chroma v3 richiede il pacchetto separato
+  @chroma-core/openai per gli embedding OpenAI.

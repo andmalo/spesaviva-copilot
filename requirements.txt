@@ -10,3 +10,4 @@ langchain-experimental==0.4.2
 tabulate
 fastapi
 uvicorn
+chromadb
