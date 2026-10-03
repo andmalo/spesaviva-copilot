@@ -35,3 +35,17 @@
   domande a cui il manuale non risponde.
 - Il client JS di Chroma v3 richiede il pacchetto separato
   @chroma-core/openai per gli embedding OpenAI.
+
+## 2026-10-03 – Orchestratore: primo test
+- 5 domande su 5 con il comportamento corretto: RAG, dati, memoria
+  della conversazione, domanda ibrida in sequenza (aumento scarti
+  confermato: +2,53%), rifiuto delle domande fuori ambito.
+- Errore trovato: orchestratore e data agent definivano "questa
+  settimana" in modo diverso; risolto dando le stesse definizioni
+  di tempo a entrambi.
+- Soglia RAG mantenuta a 0,40: il tecnico frigo è stato incluso nella
+  domanda 1 anche se non pertinente; abbassarla potrebbe escludere
+  sezioni utili, da verificare.
+- Smart App Control bloccava pandas 3.0.6: risolto con pandas
+  3.0.5 e versioni fissate in requirements.txt.
+- Costo del test: circa 16.000 token dell'orchestratore per 5 domande.

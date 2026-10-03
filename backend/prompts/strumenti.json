@@ -1,0 +1,34 @@
+[
+  {
+    "type": "function",
+    "function": {
+      "name": "cerca_procedure",
+      "description": "Cerca nel manuale operativo della catena SpesaViva e nella scheda del\nnegozio dello Store Manager, e restituisce le sezioni più pertinenti.\nUsalo quando lo Store Manager chiede qualcosa di operativo o\nprocedurale: come comportarsi in una situazione, regole, tempi e\nsoglie, oppure contatti e informazioni del negozio (orari, fornitori di\nservizi, Area Manager). Esempi: \"cosa faccio se una consegna arriva\nfuori temperatura?\", \"chi chiamo se si guasta il frigo?\". Non\nrispondere mai a queste domande con conoscenze generali: usa sempre\nquesto strumento. Non usarlo per analisi di KPI o dati numerici del\nnegozio: per quelle usa analizza_dati.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "domanda": { "type": "string" }
+        },
+        "required": ["domanda"],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "analizza_dati",
+      "description": "Analizza i dati giornalieri dei 6 negozi della catena (vendite e\nobiettivi, scontrini, vendite e scarti per reparto, prodotti esauriti,\nconsegne in ritardo, ore di lavoro e assenze) e restituisce numeri e\ninterpretazione. Usalo per qualsiasi domanda su come sta andando il\nnegozio: KPI, andamenti, confronti nel tempo o con gli altri negozi,\nanomalie. Esempi: \"le vendite del secondo trimestre sono migliorate\nrispetto al primo?\", \"com'è andata ieri?\". Non rispondere mai a queste\ndomande con conoscenze generali: usa sempre questo strumento. I dati\nsono totali giornalieri per negozio e reparto: non esistono dati per\nsingolo prodotto, singolo dipendente o fascia oraria; se vengono\nchiesti, spiega che non sono disponibili. Non usarlo per domande su\nprocedure o contatti: per quelle usa cerca_procedure. Se la domanda\nchiede sia un'analisi sia cosa fare, usa entrambi gli strumenti.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "domanda": { "type": "string" }
+        },
+        "required": ["domanda"],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  }
+]
