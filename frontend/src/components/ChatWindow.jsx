@@ -5,7 +5,7 @@ import TypingIndicator from './TypingIndicator.jsx'
 import Composer from './Composer.jsx'
 import { CONFIG } from '../config.js'
 
-export default function ChatWindow({ messaggi, inAttesa, onInvia }) {
+export default function ChatWindow({ messaggi, inAttesa, onInvia, onNuovaConversazione }) {
   const fineMessaggi = useRef(null)
 
   // Scorrimento automatico all'ultimo messaggio (o all'indicatore di attesa)
@@ -20,10 +20,15 @@ export default function ChatWindow({ messaggi, inAttesa, onInvia }) {
           <h1 className="chat__titolo">Conversazione</h1>
           <p className="chat__data">{CONFIG.dataOggi}</p>
         </div>
-        <ul className="legenda" aria-label="Legenda delle fonti">
-          <li><span className="badge-legenda badge-legenda--manuale">Manuale (RAG)</span></li>
-          <li><span className="badge-legenda badge-legenda--dati">Dati del negozio</span></li>
-        </ul>
+        <div className="chat__azioni">
+          <ul className="legenda" aria-label="Legenda delle fonti">
+            <li><span className="badge-legenda badge-legenda--manuale">Manuale (RAG)</span></li>
+            <li><span className="badge-legenda badge-legenda--dati">Dati del negozio</span></li>
+          </ul>
+          <button type="button" className="pulsante pulsante--secondario pulsante--compatto" onClick={onNuovaConversazione}>
+            Nuova conversazione
+          </button>
+        </div>
       </header>
 
       <div className="chat__messaggi" aria-live="polite">

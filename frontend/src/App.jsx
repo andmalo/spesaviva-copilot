@@ -90,8 +90,8 @@ export default function App() {
 
   return (
     <div className="app">
-      <Sidebar onDomanda={invia} onNuovaConversazione={nuovaConversazione} inAttesa={inAttesa} />
-      <ChatWindow messaggi={messaggi} inAttesa={inAttesa} onInvia={invia} />
+      <Sidebar onDomanda={invia} inAttesa={inAttesa} />
+      <ChatWindow messaggi={messaggi} inAttesa={inAttesa} onInvia={invia} onNuovaConversazione={nuovaConversazione} />
     </div>
   )
 }

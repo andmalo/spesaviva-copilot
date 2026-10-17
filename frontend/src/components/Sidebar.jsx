@@ -1,10 +1,10 @@
-// Barra laterale: logo, dati del negozio, briefing, domande rapide e nuova conversazione.
+// Barra laterale: logo, dati del negozio, briefing e domande rapide.
 import { CONFIG, DOMANDA_BRIEFING, DOMANDE_RAPIDE } from '../config.js'
 
 // Classe CSS dell'etichetta per ogni tipo di domanda rapida
 const CLASSE_TIPO = { RAG: 'etichetta--manuale', DATI: 'etichetta--dati', FUORI: 'etichetta--fuori' }
 
-export default function Sidebar({ onDomanda, onNuovaConversazione, inAttesa }) {
+export default function Sidebar({ onDomanda, inAttesa }) {
   return (
     <aside className="sidebar">
       <div className="logo">
@@ -46,10 +46,6 @@ export default function Sidebar({ onDomanda, onNuovaConversazione, inAttesa }) {
           ))}
         </ul>
       </section>
-
-      <button type="button" className="pulsante pulsante--secondario sidebar__fondo" onClick={onNuovaConversazione}>
-        Nuova conversazione
-      </button>
     </aside>
   )
 }
