@@ -49,3 +49,24 @@
 - Smart App Control bloccava pandas 3.0.6: risolto con pandas
   3.0.5 e versioni fissate in requirements.txt.
 - Costo del test: circa 16.000 token dell'orchestratore per 5 domande.
+
+## 2026-10-17 – Briefing deterministico e grafici disegnati dal codice
+- Problema: l'LLM ignorava le regole del prompt (falsi allarmi nel
+  briefing, grafici con unità mescolate).
+- Soluzione: i controlli fissi sono passati al codice. Il briefing
+  controlla le soglie del manuale in pandas; per i grafici l'agente
+  sceglie i dati e il codice li disegna e li valida.
+- Risultato del briefing: da 28 a 4 secondi, da 7.650 a 3.124 token,
+  nessun falso allarme; trovate le anomalie piantate (ondata di
+  caldo di luglio 2025, fornitore in crisi di marzo 2026).
+- Grafici: il primo tentativo con un file JSON scritto dall'agente è
+  fallito perché il modello saltava il passaggio finale; la soluzione
+  è un blocco JSON nella risposta, estratto, validato e disegnato dal
+  codice. Lettura tollerante con ast.literal_eval (mai eval, per
+  sicurezza).
+- Limite noto: con gpt-4.1-mini alcune risposte escono senza grafico,
+  soprattutto nei confronti tra due periodi. In quel caso la risposta
+  testuale arriva comunque, senza errori. La frequenza verrà misurata
+  nel test finale sulle 20 domande.
+- Principio: l'LLM decide cosa fare e cosa mostrare, il codice
+  esegue i passaggi che devono essere sempre uguali.

@@ -3,11 +3,13 @@
 Riceve una domanda in linguaggio naturale, la fa analizzare al pandas agent
 sui dati puliti dei negozi e restituisce la risposta, l'URL del grafico
 generato e il riepilogo della pulizia dei dati.
+Prepara inoltre il briefing del mattino, calcolato solo con pandas (POST /briefing).
 
 Avvio (dalla cartella principale del progetto, con il .venv attivo):
     python data_agent/app.py
 """
 
+import json
 import logging
 import os
 import uuid
@@ -31,6 +33,8 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
+from briefing import prepara_briefing
+from grafici import disegna_grafico, estrai_blocco_grafico
 from pulizia import pulisci_dati, riepilogo_pulizia
 
 # Percorsi del progetto
@@ -89,8 +93,8 @@ class Domanda(BaseModel):
     domanda: str
 
 
-def costruisci_prompt(percorso_grafico: Path) -> str:
-    """Riempie i segnaposto del prompt, come nel notebook, più il percorso del grafico."""
+def costruisci_prompt() -> str:
+    """Riempie i segnaposto del prompt, come nel notebook."""
     oggi = date.fromisoformat(os.getenv("DATA_RIFERIMENTO"))
     ieri = oggi - timedelta(days=1)
     inizio_settimana = ieri - timedelta(days=6)
@@ -100,9 +104,26 @@ def costruisci_prompt(percorso_grafico: Path) -> str:
         inizio_settimana=inizio_settimana.isoformat(),
         mese_corrente=f"{MESI[ieri.month - 1]} {ieri.year}",
         negozio=os.getenv("NEGOZIO_UTENTE"),
-        # Barre "/" anche su Windows: le "\" nel codice Python generato creerebbero sequenze di escape
-        percorso_grafico=percorso_grafico.as_posix(),
     )
+
+
+def grafico_dalla_risposta(testo: str, percorso_grafico: Path) -> str:
+    """Toglie dalla risposta il blocco ```json del grafico e, se la spec è valida, disegna il grafico.
+    Restituisce il testo senza il blocco. Se manca o non è valido: nessun grafico, solo una riga di log."""
+    testo_pulito, spec, motivo = estrai_blocco_grafico(testo)
+    if spec is not None:
+        try:
+            creato, motivo = disegna_grafico(spec, percorso_grafico)
+        except Exception as errore:
+            creato, motivo = False, f"errore nel disegno ({type(errore).__name__})"
+        if creato:
+            return testo_pulito
+    if spec is not None:
+        # Si registra anche la spec scartata (solo dati del grafico, niente di sensibile), troncata
+        logger.warning("Grafico non prodotto: %s | spec: %s", motivo, json.dumps(spec, ensure_ascii=False)[:500])
+    else:
+        logger.warning("Grafico non prodotto: %s", motivo)
+    return testo_pulito
 
 
 def messaggio_errore(errore: Exception) -> str:
@@ -137,13 +158,13 @@ def analizza(richiesta: Domanda, request: Request):
     # a) Copia dei dati puliti: l'agente non può modificare i dati condivisi tra le richieste
     df_richiesta = stato["df_pulito"].copy()
 
-    # b) Nome file unico per il grafico di questa richiesta
+    # b) Nome file unico per il grafico di questa richiesta (lo disegna il codice, non l'agente)
     nome_grafico = f"grafico_{uuid.uuid4().hex}.png"
     percorso_grafico = CARTELLA_GRAFICI / nome_grafico
 
     try:
         # c) Prompt con i segnaposto riempiti
-        prompt = costruisci_prompt(percorso_grafico)
+        prompt = costruisci_prompt()
 
         # d) Modello e agente, creati per ogni richiesta sulla copia dei dati
         llm = ChatOpenAI(
@@ -168,11 +189,43 @@ def analizza(richiesta: Domanda, request: Request):
         logger.error("Analisi non riuscita: %s", type(errore).__name__)
         raise HTTPException(status_code=500, detail=messaggio_errore(errore))
 
-    # e) URL del grafico solo se l'agente ha davvero creato il file
+    # e) Il blocco json del grafico si toglie sempre dalla risposta; il grafico si disegna solo se è valido
+    risposta = grafico_dalla_risposta(risultato["output"], percorso_grafico)
+
+    # f) URL del grafico solo se il file è stato davvero creato
     url_grafico = f"{str(request.base_url).rstrip('/')}/charts/{nome_grafico}" if percorso_grafico.exists() else None
 
     return {
-        "risposta": risultato["output"],
+        "risposta": risposta,
+        "grafico": url_grafico,
+        "pulizia": stato["riepilogo_pulizia"],
+    }
+
+
+@app.post("/briefing")
+def briefing(request: Request):
+    """Briefing del mattino: KPI di ieri, anomalie secondo le soglie del manuale e grafico degli scarti.
+    Calcolato solo con pandas, senza chiamate a OpenAI."""
+    # Copia dei dati puliti, come per /analizza
+    df_richiesta = stato["df_pulito"].copy()
+    nome_grafico = f"briefing_{uuid.uuid4().hex}.png"
+    percorso_grafico = CARTELLA_GRAFICI / nome_grafico
+    oggi = date.fromisoformat(os.getenv("DATA_RIFERIMENTO"))
+
+    try:
+        risultato = prepara_briefing(df_richiesta, os.getenv("NEGOZIO_UTENTE"), oggi, percorso_grafico)
+    except ValueError as errore:
+        # Messaggio scritto da noi in italiano (es. nessun dato per ieri): si può mostrare
+        raise HTTPException(status_code=404, detail=str(errore))
+    except Exception as errore:
+        logger.error("Briefing non riuscito: %s", type(errore).__name__)
+        raise HTTPException(status_code=500, detail=f"Errore interno durante il briefing ({type(errore).__name__}).")
+
+    url_grafico = f"{str(request.base_url).rstrip('/')}/charts/{nome_grafico}" if percorso_grafico.exists() else None
+    return {
+        "kpi": risultato["kpi"],
+        "controlli": risultato["controlli"],
+        "anomalie": risultato["anomalie"],
         "grafico": url_grafico,
         "pulizia": stato["riepilogo_pulizia"],
     }

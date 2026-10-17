@@ -13,7 +13,7 @@ const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
 
-const { STRUMENTI, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent } = require("./strumenti");
+const { STRUMENTI, STRUMENTI_SENZA_PARAMETRI, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent } = require("./strumenti");
 const { creaClient } = require("./rag/config");
 
 // ---------------------------------------------------------------------------
@@ -25,7 +25,7 @@ const ORIGINE_FRONT_END = "http://localhost:5173";
 
 const LUNGHEZZA_MASSIMA_MESSAGGIO = 1000; // caratteri
 const MESSAGGI_IN_MEMORIA = 10;           // ultimi messaggi della sessione mandati all'LLM
-const MAX_ITERAZIONI = 4;                 // chiamate al modello per ogni richiesta
+const MAX_ITERAZIONI = 6;                 // chiamate al modello per ogni richiesta
 const MAX_TOKEN_RISPOSTA = 1000;          // token massimi generati in una singola chiamata
 const TIMEOUT_OPENAI_MS = 60_000;         // tempo massimo per una singola chiamata a OpenAI
 
@@ -193,21 +193,24 @@ async function rispondi(storico, messaggio) {
 
     for (const chiamata of chiamate) {
       const nome = chiamata.function?.name;
-      const domanda = leggiDomanda(chiamata.function?.arguments);
+      // Gli strumenti senza parametri (prepara_briefing) non ricevono la domanda
+      const senzaParametri = STRUMENTI_SENZA_PARAMETRI.has(nome);
+      const domanda = senzaParametri ? null : leggiDomanda(chiamata.function?.arguments);
       let contenuto;
 
       if (!STRUMENTI[nome]) {
         contenuto = `Errore: lo strumento "${nome}" non esiste.`;
-      } else if (!domanda) {
+      } else if (!senzaParametri && !domanda) {
         contenuto = "Errore: manca il parametro obbligatorio \"domanda\".";
       } else {
-        // Prenoto le chiamate OpenAI che lo strumento può fare (caso peggiore)
-        const chiamateStrumento = nome === "analizza_dati" ? CHIAMATE_MASSIME_DATA_AGENT : 1;
+        // Prenoto le chiamate OpenAI che lo strumento può fare (caso peggiore):
+        // 5 per il data agent, 1 embedding per la ricerca, nessuna per il briefing (solo pandas)
+        const chiamateStrumento = { analizza_dati: CHIAMATE_MASSIME_DATA_AGENT, cerca_procedure: 1, prepara_briefing: 0 }[nome];
         if (!prenotaChiamate(chiamateStrumento)) {
           contenuto = "Errore: raggiunto il numero massimo di chiamate consentite, lo strumento non è stato eseguito. Avvisa lo Store Manager.";
         } else {
           esito.strumenti.push({ nome, domanda });
-          const risultato = await STRUMENTI[nome](domanda);
+          const risultato = senzaParametri ? await STRUMENTI[nome]() : await STRUMENTI[nome](domanda);
           contenuto = risultato.testoPerLLM;
 
           // Fonti, grafici e pulizia restano al server e vanno solo al front end

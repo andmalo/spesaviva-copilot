@@ -7,9 +7,13 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "domanda": { "type": "string" }
+          "domanda": {
+            "type": "string"
+          }
         },
-        "required": ["domanda"],
+        "required": [
+          "domanda"
+        ],
         "additionalProperties": false
       },
       "strict": true
@@ -23,9 +27,27 @@
       "parameters": {
         "type": "object",
         "properties": {
-          "domanda": { "type": "string" }
+          "domanda": {
+            "type": "string"
+          }
         },
-        "required": ["domanda"],
+        "required": [
+          "domanda"
+        ],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "prepara_briefing",
+      "description": "Prepara il briefing del mattino del negozio: KPI di ieri e controllo automatico delle soglie del manuale su scarti, prodotti esauriti, consegne in ritardo e assenze. Usalo quando lo Store Manager chiede il briefing, il riepilogo della giornata o 'com'è andata ieri' in generale. Per domande su un indicatore specifico usa analizza_dati.",
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "required": [],
         "additionalProperties": false
       },
       "strict": true

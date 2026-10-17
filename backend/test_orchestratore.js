@@ -97,7 +97,7 @@ function mostra(numero, domanda, { stato, corpo }) {
   }
   console.log("Strumenti:");
   if (corpo.strumenti.length === 0) console.log("  (nessuno)");
-  corpo.strumenti.forEach((s, i) => console.log(`  ${i + 1}) ${s.nome}: "${s.domanda}"`));
+  corpo.strumenti.forEach((s, i) => console.log(`  ${i + 1}) ${s.nome}${s.domanda ? `: "${s.domanda}"` : " (senza parametri)"}`));
   console.log(`Risposta:\n  ${corpo.risposta.replace(/\n/g, "\n  ")}`);
   console.log("Sezioni consultate:");
   if (corpo.sezioni_consultate.length === 0) console.log("  (nessuna)");

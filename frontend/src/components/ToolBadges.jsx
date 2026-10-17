@@ -4,6 +4,7 @@
 const STRUMENTI = {
   analizza_dati: { etichetta: 'Dati del negozio', classe: 'badge--dati' },
   cerca_procedure: { etichetta: 'Manuale operativo', classe: 'badge--manuale' },
+  prepara_briefing: { etichetta: 'Briefing', classe: 'badge--dati' },
 }
 
 export default function ToolBadges({ strumenti }) {
@@ -22,7 +23,8 @@ export default function ToolBadges({ strumenti }) {
               <span className="badge__etichetta">{info.etichetta}</span>
               <code className="badge__nome">{strumento.nome}</code>
             </div>
-            <em className="badge__domanda">{strumento.domanda}</em>
+            {/* prepara_briefing non riceve una domanda: in quel caso non si mostra nulla */}
+            {strumento.domanda && <em className="badge__domanda">{strumento.domanda}</em>}
           </li>
         )
       })}

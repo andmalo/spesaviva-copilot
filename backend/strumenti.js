@@ -18,6 +18,7 @@ const DISTANZA_MASSIMA = 0.4; // oltre questa distanza del coseno la sezione è 
 
 // Parametri della chiamata al data agent
 const TIMEOUT_DATA_AGENT_MS = 120_000;
+const TIMEOUT_BRIEFING_MS = 30_000; // il briefing non usa l'LLM: bastano pochi secondi
 // Il data agent fa al massimo 5 passi per domanda (MAX_PASSI_PER_DOMANDA in data_agent/app.py):
 // nel conteggio delle chiamate a OpenAI si considera sempre il caso peggiore
 const CHIAMATE_MASSIME_DATA_AGENT = 5;
@@ -117,7 +118,131 @@ async function analizza_dati(domanda) {
   };
 }
 
-// Mappa nome dello strumento -> funzione, usata dal ciclo di function calling
-const STRUMENTI = { cerca_procedure, analizza_dati };
+// Formattazione dei numeri all'italiana per il testo passato all'LLM
+const euro = (n) => n.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+const numero = (n) => n.toLocaleString("it-IT", { maximumFractionDigits: 2 });
 
-module.exports = { STRUMENTI, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent };
+// "1 giorno" / "3 giorni"
+const giorni = (n) => (n === 1 ? "1 giorno" : `${n} giorni`);
+
+// Esito di un controllo su più giorni consecutivi (scarti, rotture), già deciso dal codice
+function esitoConsecutivo({ anomalia, giorniSopra, giorniPerAnomalia, sopraIeri, nomeLimite }) {
+  if (anomalia) return `ANOMALIA: sopra ${nomeLimite} da ${giorni(giorniSopra)} consecutivi`;
+  if (sopraIeri) {
+    return `sopra ${nomeLimite} ieri, da ${giorni(giorniSopra)}, non è un'anomalia (servono ${giorni(giorniPerAnomalia)} consecutivi)`;
+  }
+  return `sotto ${nomeLimite}, non è un'anomalia`;
+}
+
+// Trasforma KPI, stato dei controlli e anomalie del briefing in un testo compatto per l'LLM.
+// Lo stato di ogni controllo è già deciso dal codice: l'LLM non deve confrontare valori e soglie.
+function testoBriefing({ kpi, controlli, anomalie }) {
+  const righe = [
+    `KPI di ieri, ${kpi.giorno_settimana} ${kpi.data}, negozio ${kpi.negozio}:`,
+    `- vendite ${euro(kpi.vendite)}, obiettivo ${euro(kpi.obiettivo)}, scostamento ${numero(kpi.scostamento_pct)}%`,
+    `- scontrini ${kpi.scontrini}, scontrino medio ${euro(kpi.scontrino_medio)}`,
+    `- consegne in ritardo ieri ${kpi.consegne_in_ritardo}, tasso di assenza del giorno ${numero(kpi.tasso_assenza_pct)}%`,
+    "",
+    "Controlli delle soglie del manuale (esito già calcolato, da riportare così com'è):",
+  ];
+
+  for (const [reparto, s] of Object.entries(controlli.scarti)) {
+    let esito = esitoConsecutivo({
+      anomalia: s.anomalia,
+      giorniSopra: s.giorni_sopra_soglia,
+      giorniPerAnomalia: s.giorni_per_anomalia,
+      sopraIeri: s.giorni_sopra_soglia > 0,
+      nomeLimite: "soglia",
+    });
+    if (s.area_manager) esito += "; da comunicare all'Area Manager";
+    righe.push(`- scarto ${reparto} ${numero(s.valore)}% (soglia ${numero(s.soglia)}%): ${esito}`);
+  }
+
+  const r = controlli.rotture;
+  righe.push(
+    `- referenze in rottura ${r.valore} (limite ${r.limite}): ` +
+      esitoConsecutivo({
+        anomalia: r.anomalia,
+        giorniSopra: r.giorni_sopra_limite,
+        giorniPerAnomalia: r.giorni_per_anomalia,
+        sopraIeri: r.giorni_sopra_limite > 0,
+        nomeLimite: "il limite",
+      })
+  );
+
+  for (const c of controlli.consegne) {
+    const esito = c.anomalia ? "ANOMALIA: soglia raggiunta" : "sotto soglia, non è un'anomalia";
+    righe.push(`- consegne in ritardo nella ${c.settimana} (${c.periodo}): ${c.valore} (soglia ${c.soglia} o più): ${esito}`);
+  }
+  for (const a of controlli.assenze) {
+    const esito = a.anomalia ? "ANOMALIA: oltre la soglia" : "sotto soglia, non è un'anomalia";
+    righe.push(`- assenze nella ${a.settimana} (${a.periodo}): ${numero(a.valore)}% delle ore pianificate (soglia ${numero(a.soglia)}%): ${esito}`);
+  }
+
+  righe.push("");
+  if (anomalie.length === 0) {
+    righe.push("Anomalie: nessuna. Non cercare procedure.");
+  } else {
+    righe.push(`Anomalie (${anomalie.length}), decise dal controllo automatico delle soglie del manuale:`);
+    anomalie.forEach((a, i) => {
+      righe.push(
+        `${i + 1}. ${a.testo} Periodo: ${a.periodo}.` +
+          `${a.area_manager ? " Da comunicare all'Area Manager." : ""} domanda_procedura: "${a.domanda_procedura}"`
+      );
+    });
+  }
+  return righe.join("\n");
+}
+
+/**
+ * Chiede al data agent il briefing del mattino (POST /briefing), calcolato senza LLM.
+ * All'LLM passa solo KPI e anomalie in testo compatto: grafico e pulizia vanno al front end.
+ */
+async function prepara_briefing() {
+  const erroreGenerico = { grafico: null, pulizia: null, chiamateOpenAI: 0 };
+
+  let risposta;
+  try {
+    risposta = await fetch(`${indirizzoDataAgent()}/briefing`, {
+      method: "POST",
+      signal: AbortSignal.timeout(TIMEOUT_BRIEFING_MS),
+    });
+  } catch (errore) {
+    console.error(`[prepara_briefing] data agent non raggiungibile (${errore.name})`);
+    return {
+      ...erroreGenerico,
+      testoPerLLM: "Errore: il servizio che prepara il briefing non risponde. Avvisa lo Store Manager che al momento il briefing non è disponibile e di riprovare più tardi.",
+    };
+  }
+
+  if (!risposta.ok) {
+    let dettaglio = "errore sconosciuto";
+    try {
+      const corpo = await risposta.json();
+      if (typeof corpo.detail === "string") dettaglio = corpo.detail;
+    } catch {
+      // corpo non leggibile: resta il messaggio generico
+    }
+    console.error(`[prepara_briefing] il data agent ha risposto con stato ${risposta.status}`);
+    return {
+      ...erroreGenerico,
+      testoPerLLM: `Errore: il briefing non è stato preparato (${dettaglio}). Avvisa lo Store Manager e non inventare numeri.`,
+    };
+  }
+
+  const dati = await risposta.json();
+  return {
+    testoPerLLM: testoBriefing(dati),
+    grafico: dati.grafico || null,
+    pulizia: dati.pulizia ?? null,
+    chiamateOpenAI: 0, // il briefing è calcolato solo con pandas
+  };
+}
+
+// Mappa nome dello strumento -> funzione, usata dal ciclo di function calling
+const STRUMENTI = { cerca_procedure, analizza_dati, prepara_briefing };
+
+// Strumenti che non ricevono il parametro "domanda"
+const STRUMENTI_SENZA_PARAMETRI = new Set(["prepara_briefing"]);
+
+module.exports = { STRUMENTI, STRUMENTI_SENZA_PARAMETRI, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent };
