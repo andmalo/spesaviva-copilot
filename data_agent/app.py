@@ -329,6 +329,7 @@ def briefing(request: Request):
         "kpi": risultato["kpi"],
         "controlli": risultato["controlli"],
         "anomalie": risultato["anomalie"],
+        "riconoscimenti": risultato["riconoscimenti"],
         "grafico": url_grafico,
         "pulizia": stato["riepilogo_pulizia"],
     }

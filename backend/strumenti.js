@@ -150,7 +150,7 @@ function esitoConsecutivo({ anomalia, giorniSopra, giorniPerAnomalia, sopraIeri,
 
 // Trasforma KPI, stato dei controlli e anomalie del briefing in un testo compatto per l'LLM.
 // Lo stato di ogni controllo è già deciso dal codice: l'LLM non deve confrontare valori e soglie.
-function testoBriefing({ kpi, controlli, anomalie }) {
+function testoBriefing({ kpi, controlli, anomalie, riconoscimenti = [] }) {
   const righe = [
     `KPI di ieri, ${kpi.giorno_settimana} ${kpi.data}, negozio ${kpi.negozio}:`,
     `- vendite ${euro(kpi.vendite)}, obiettivo ${euro(kpi.obiettivo)}, scostamento ${numero(kpi.scostamento_pct)}%`,
@@ -205,6 +205,19 @@ function testoBriefing({ kpi, controlli, anomalie }) {
       );
     });
   }
+
+  // Riconoscimenti: già decisi dal codice, separati dalle anomalie
+  righe.push("");
+  if (riconoscimenti.length === 0) {
+    righe.push("Riconoscimenti: nessuno.");
+  } else {
+    righe.push(`Riconoscimenti (${riconoscimenti.length}), calcolati dal codice (miglioramenti duraturi del tasso di scarto):`);
+    riconoscimenti.forEach((r, i) => righe.push(`${i + 1}. ${r.testo}`));
+    righe.push(
+      "Scrivi la bozza del messaggio alla squadra tra una riga [BOZZA] e una riga [/BOZZA], " +
+        "alla fine della risposta: verrà mostrata in un riquadro separato con il pulsante Copia."
+    );
+  }
   return righe.join("\n");
 }
 
@@ -247,6 +260,8 @@ async function prepara_briefing(segnaleRichiesta) {
   const dati = await risposta.json();
   return {
     testoPerLLM: testoBriefing(dati),
+    // I riconoscimenti vanno anche al front end, già calcolati (non scritti dall'LLM)
+    riconoscimenti: Array.isArray(dati.riconoscimenti) ? dati.riconoscimenti : [],
     grafico: dati.grafico || null,
     pulizia: dati.pulizia ?? null,
     chiamateOpenAI: 0, // il briefing è calcolato solo con pandas

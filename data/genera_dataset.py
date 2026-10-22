@@ -193,6 +193,10 @@ for col in ["vendite_totali", "numero_scontrini", "vendite_ortofrutta",
             "vendite_panetteria", "vendite_freschi"]:
     df.loc[m, col] *= 0.88
 
+# 4.5 Miglioramento: NEG01 rivede gli ordini del pane da luglio 2026
+m = (df["negozio"] == "NEG01") & df["data"].between("2026-07-01", "2026-08-31")
+df.loc[m, "scarti_panetteria"] *= 0.82
+
 # Colonna derivata dagli scarti in euro (calcolata DOPO le anomalie, cosi' resta coerente)
 df["scarti_kg_totali"] = sum(df[f"scarti_{r}"] / PREZZO_KG[r] for r in PREZZO_KG)
 

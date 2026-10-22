@@ -754,3 +754,68 @@ button:disabled {
   color: var(--testo-secondario);
   font-style: italic;
 }
+
+/* Riquadro dei riconoscimenti: verde chiaro, distinto dagli avvisi arancioni */
+.riconoscimenti {
+  padding: 12px 14px;
+  background: var(--dati-sfondo);
+  border: 1px solid #c9dccf;
+  border-radius: var(--raggio);
+  color: var(--dati-testo);
+}
+
+.riconoscimenti__titolo {
+  font-family: var(--font-titoli);
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.riconoscimenti__elenco {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 14px;
+}
+
+.riconoscimenti__reparto {
+  text-transform: capitalize;
+}
+
+.riconoscimenti__bozza {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--superficie);
+  border-radius: var(--raggio-piccolo);
+  color: var(--testo);
+}
+
+.riconoscimenti__intestazione-bozza {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--testo-secondario);
+  margin-bottom: 6px;
+}
+
+.riconoscimenti__copia {
+  padding: 4px 12px;
+  border: 1px solid var(--verde);
+  border-radius: var(--raggio-piccolo);
+  background: var(--superficie);
+  color: var(--verde);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.riconoscimenti__copia:hover {
+  background: var(--dati-sfondo);
+}
+
+.riconoscimenti__testo-bozza {
+  white-space: pre-wrap;
+  font-size: 14px;
+}

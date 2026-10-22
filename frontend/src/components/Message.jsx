@@ -1,6 +1,7 @@
 // Un messaggio della chat: bolla dell'utente, card dell'assistente, benvenuto o avviso d'errore.
 import ReactMarkdown from 'react-markdown'
 import ToolBadges from './ToolBadges.jsx'
+import Riconoscimenti from './Riconoscimenti.jsx'
 
 // Il markdown scritto dall'LLM non deve far caricare nulla dall'esterno:
 // - i link restano semplice testo (niente indirizzo cliccabile);
@@ -65,7 +66,10 @@ export default function Message({ messaggio }) {
   }
 
   // Risposta dell'assistente con strumenti, testo, grafici, sezioni e nota sulla pulizia
-  const { risposta, strumenti = [], grafici = [], sezioni_consultate = [], pulizia } = messaggio.dati
+  const {
+    risposta, strumenti = [], grafici = [], sezioni_consultate = [], pulizia,
+    riconoscimenti = [], bozza_riconoscimento: bozza = null,
+  } = messaggio.dati
 
   return (
     <div className="messaggio messaggio--assistente">
@@ -79,6 +83,9 @@ export default function Message({ messaggio }) {
             {risposta}
           </ReactMarkdown>
         </div>
+
+        {/* Riconoscimenti del briefing, se presenti: riquadro verde chiaro, separato dalle anomalie */}
+        {riconoscimenti.length > 0 && <Riconoscimenti riconoscimenti={riconoscimenti} bozza={bozza} />}
 
         {grafici.length > 0 && (
           <div className="grafici">

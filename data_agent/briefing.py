@@ -39,6 +39,15 @@ SOGLIE = {
     "consegne_ritardo_settimana": 3,
     # Capitolo 6 "Gestione del personale": assenze oltre il 10% delle ore pianificate nella settimana
     "assenze_settimana_pct": 10.0,
+    # Riconoscimento di squadra (regola interna del progetto, non del manuale):
+    # tasso di scarto mensile di un reparto almeno il 10% sotto il riferimento
+    # per 2 mesi consecutivi; riferimento = tasso dello STESSO mese dell'anno
+    # prima, così la stagionalità (es. ortofrutta più alta d'estate) non crea
+    # falsi miglioramenti. Con la media dei 6 mesi precedenti comparivano 20
+    # falsi riconoscimenti di ortofrutta in autunno-inverno.
+    "miglioramento_riduzione_pct": 10.0,
+    "miglioramento_mesi_consecutivi": 2,
+    "miglioramento_mesi_confronto": 12,  # stesso mese, un anno prima
 }
 
 REPARTI = ["ortofrutta", "panetteria", "freschi"]
@@ -214,6 +223,87 @@ def _controlla_assenze(serie: pd.DataFrame, ieri: date) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Riconoscimenti: miglioramenti duraturi del tasso di scarto
+# ---------------------------------------------------------------------------
+
+def _mese_it(periodo: pd.Period) -> str:
+    """Mese per esteso, es. 'agosto 2026'."""
+    return f"{MESI[periodo.month - 1]} {periodo.year}"
+
+
+def _a_mese(nome_mese: str) -> str:
+    """Preposizione davanti al mese: "ad agosto", "ad aprile", ma "a luglio"."""
+    return f"ad {nome_mese}" if nome_mese[0] in "aeiou" else f"a {nome_mese}"
+
+
+def ultimo_mese_completo(ieri: date) -> pd.Period:
+    """L'ultimo mese che finisce entro ieri (se ieri è l'ultimo giorno del mese, è il mese di ieri)."""
+    mese_di_ieri = pd.Period(ieri, freq="M")
+    return mese_di_ieri if ieri == mese_di_ieri.end_time.date() else mese_di_ieri - 1
+
+
+def _totali_mensili(df: pd.DataFrame, negozio: str) -> pd.DataFrame:
+    """Vendite e scarti per reparto, sommati per mese, per un negozio."""
+    righe = df[df["negozio"] == negozio]
+    colonne = [f"{tipo}_{r}" for r in REPARTI for tipo in ("vendite", "scarti")]
+    return righe.groupby(righe["data"].dt.to_period("M"))[colonne].sum()
+
+
+def controlla_miglioramenti(df: pd.DataFrame, negozio: str, ultimo_mese: pd.Period) -> list[dict]:
+    """Riconoscimenti per i reparti il cui tasso di scarto mensile è almeno il 10% sotto il
+    riferimento nei 2 mesi consecutivi che terminano con ultimo_mese. Solo pandas, nessun LLM.
+
+    Tasso mensile = scarti del mese / vendite del mese dello stesso reparto (rapporto dei totali).
+    Riferimento di ogni mese = tasso dello stesso mese dell'anno prima (confronto destagionalizzato).
+    """
+    n_mesi = SOGLIE["miglioramento_mesi_consecutivi"]
+    distanza = SOGLIE["miglioramento_mesi_confronto"]
+    riduzione = SOGLIE["miglioramento_riduzione_pct"]
+
+    mesi = [ultimo_mese - i for i in range(n_mesi - 1, -1, -1)]   # es. luglio, agosto 2026
+    mesi_rif = [m - distanza for m in mesi]                        # es. luglio, agosto 2025
+    totali = _totali_mensili(df, negozio)
+    if any(m not in totali.index for m in mesi + mesi_rif):
+        return []  # dati insufficienti (serve un anno di storico): nessun riconoscimento
+
+    riconoscimenti = []
+    for reparto in REPARTI:
+        vendite = totali[f"vendite_{reparto}"]
+        scarti = totali[f"scarti_{reparto}"]
+        tassi = scarti / vendite * 100
+        tassi_mesi = [float(tassi[m]) for m in mesi]
+        riferimenti = [float(tassi[m]) for m in mesi_rif]
+        variazioni = [(v - r) / r * 100 for v, r in zip(tassi_mesi, riferimenti)]
+        if not all(v <= -riduzione for v in variazioni):
+            continue
+
+        # Euro risparmiati: scarti che ci sarebbero stati al tasso dell'anno prima, meno quelli reali
+        risparmio = sum((r - v) / 100 * float(vendite[m]) for v, r, m in zip(tassi_mesi, riferimenti, mesi))
+        # Riferimento e variazione complessivi dei due mesi (rapporto dei totali)
+        riferimento = float(scarti[mesi_rif].sum() / vendite[mesi_rif].sum() * 100)
+        tasso_periodo = float(scarti[mesi].sum() / vendite[mesi].sum() * 100)
+        variazione_periodo = (tasso_periodo - riferimento) / riferimento * 100
+        nomi_mesi = [_mese_it(m) for m in mesi]
+        nomi_rif = [_mese_it(m) for m in mesi_rif]
+        riconoscimenti.append({
+            "reparto": reparto,
+            "mesi": nomi_mesi,
+            "tassi": [round(v, 2) for v in tassi_mesi],
+            "riferimenti": [round(r, 2) for r in riferimenti],
+            "riferimento": round(riferimento, 2),
+            "periodo_riferimento": f"{nomi_rif[0]} e {nomi_rif[1]}",
+            "variazioni_pct": [round(v, 1) for v in variazioni],
+            "variazione_pct": round(variazione_periodo, 1),
+            "euro_risparmiati": round(risparmio, 2),
+            "testo": (f"Scarto di {reparto} al {_numero_it(tassi_mesi[0])}% {_a_mese(nomi_mesi[0])} e al "
+                      f"{_numero_it(tassi_mesi[1])}% {_a_mese(nomi_mesi[1])}, contro il {_numero_it(riferimento)}% "
+                      f"degli stessi mesi dell'anno prima ({nomi_rif[0]} e {nomi_rif[1]}, "
+                      f"{_numero_it(variazione_periodo, 1)}%): circa {_numero_it(risparmio, 0)} € di scarti in meno."),
+        })
+    return riconoscimenti
+
+
+# ---------------------------------------------------------------------------
 # Stato di ogni controllo (anche quando non c'è anomalia)
 # ---------------------------------------------------------------------------
 
@@ -356,4 +446,6 @@ def prepara_briefing(df: pd.DataFrame, negozio: str, oggi: date, percorso_grafic
         _disegna_grafico(tassi, ieri, negozio, percorso_grafico)
 
     controlli = _stato_controlli(serie, ieri, anomalie)
-    return {"kpi": kpi, "controlli": controlli, "anomalie": anomalie}
+    # Riconoscimenti: sull'ultimo mese completo, separati dalle anomalie
+    riconoscimenti = controlla_miglioramenti(df, negozio, ultimo_mese_completo(ieri))
+    return {"kpi": kpi, "controlli": controlli, "anomalie": anomalie, "riconoscimenti": riconoscimenti}

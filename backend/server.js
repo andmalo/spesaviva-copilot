@@ -196,6 +196,16 @@ function prenotaChiamate(n) {
   return true;
 }
 
+// Toglie dalla risposta la bozza del messaggio di riconoscimento, scritta tra [BOZZA] e [/BOZZA].
+// Restituisce { testo, bozza }: la bozza va nel riquadro "Riconoscimenti" del front end.
+function separaBozza(testo) {
+  const trovata = testo.match(/\[BOZZA\]([\s\S]*?)(?:\[\/BOZZA\]|$)/i);
+  if (!trovata) return { testo, bozza: null };
+  const bozza = trovata[1].trim();
+  const resto = (testo.slice(0, trovata.index) + testo.slice(trovata.index + trovata[0].length)).trim();
+  return { testo: resto, bozza: bozza || null };
+}
+
 // Legge gli argomenti generati dal modello e controlla che ci sia la domanda
 function leggiDomanda(argomentiJson) {
   try {
@@ -227,7 +237,10 @@ async function rispondi(storico, messaggio, segnale) {
     { role: "user", content: messaggio },
   ];
 
-  const esito = { risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null, token: 0 };
+  const esito = {
+    risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null,
+    riconoscimenti: [], bozza_riconoscimento: null, token: 0,
+  };
 
   // Se il front end ha chiuso la richiesta non si fanno altre chiamate
   const controllaAnnullamento = () => {
@@ -274,7 +287,15 @@ async function rispondi(storico, messaggio, segnale) {
 
     // Nessuno strumento richiesto: questa è la risposta finale
     if (chiamate.length === 0) {
-      esito.risposta = risposta.content?.trim() || "Non sono riuscito a formulare una risposta. Prova a riformulare la domanda.";
+      const testoFinale = risposta.content?.trim() || "Non sono riuscito a formulare una risposta. Prova a riformulare la domanda.";
+      // La bozza si separa solo se il briefing ha davvero restituito dei riconoscimenti
+      if (esito.riconoscimenti.length > 0) {
+        const { testo, bozza } = separaBozza(testoFinale);
+        esito.risposta = testo;
+        esito.bozza_riconoscimento = bozza;
+      } else {
+        esito.risposta = separaBozza(testoFinale).testo; // un'eventuale bozza non richiesta si toglie
+      }
       return esito;
     }
 
@@ -317,6 +338,7 @@ async function rispondi(storico, messaggio, segnale) {
             if (!giaPresente) esito.sezioni_consultate.push(fonte);
           }
           if (risultato.grafico) esito.grafici.push(risultato.grafico);
+          if (risultato.riconoscimenti?.length) esito.riconoscimenti.push(...risultato.riconoscimenti);
           if (risultato.pulizia) esito.pulizia = risultato.pulizia;
         }
       }
