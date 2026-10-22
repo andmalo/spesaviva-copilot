@@ -20,7 +20,8 @@ const MAX_CHIAMATE_OPENAI = 30;
 const ATTESA_AVVIO_MS = 120_000;
 
 const PORTA_BACKEND = process.env.BACKEND_PORT || 3001;
-const URL_BACKEND = `http://localhost:${PORTA_BACKEND}`;
+// 127.0.0.1: il back end ascolta solo sull'indirizzo IPv4 di loopback
+const URL_BACKEND = `http://127.0.0.1:${PORTA_BACKEND}`;
 
 const DOMANDE = [
   "Cosa faccio se una consegna di freschi arriva fuori temperatura?",

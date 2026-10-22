@@ -38,6 +38,7 @@ async function main() {
 }
 
 main().catch((errore) => {
-  console.error("Test della ricerca non riuscito:", errore.message);
+  // Messaggio fisso: il testo originale (es. errori di OpenAI) può contenere parti della chiave
+  console.error(`Test della ricerca non riuscito (${errore.name}): controlla che ChromaDB sia avviato e che la collezione sia indicizzata.`);
   process.exit(1);
 });

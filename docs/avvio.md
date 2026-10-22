@@ -49,7 +49,8 @@ cd "C:\Users\maloa\OneDrive\Desktop\Progetto finale\backend"
 node server.js
 ```
 
-Pronto quando compare `Orchestratore in ascolto su http://localhost:3001`.
+Pronto quando compare `Orchestratore in ascolto su http://127.0.0.1:3001` (il back end
+risponde solo da questo computer, non dagli altri dispositivi della rete).
 
 ## Terminale 4 – Front end (React + Vite)
 

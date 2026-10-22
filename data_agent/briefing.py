@@ -15,6 +15,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
+from grafici import BLOCCO_GRAFICI
+
 # ---------------------------------------------------------------------------
 # Soglie copiate dal manuale operativo (data/documenti/manuale_operativo.md)
 # ---------------------------------------------------------------------------
@@ -276,35 +278,37 @@ def _stato_controlli(serie: pd.DataFrame, ieri: date, anomalie: list[dict]) -> d
 
 def _disegna_grafico(tassi: dict, ieri: date, negozio: str, percorso) -> None:
     """Tasso di scarto per reparto di ieri, in %: barre orizzontali con la soglia di ogni reparto."""
-    fig, ax = plt.subplots(figsize=(8, 3.6))
-    posizioni = list(range(len(REPARTI)))
-    valori = [tassi[r] for r in REPARTI]
-    soglie = [SOGLIE["scarti"][r]["soglia"] for r in REPARTI]
-    colori = [ARANCIONE if v > s else VERDE for v, s in zip(valori, soglie)]
+    # pyplot non è thread-safe: un grafico alla volta (le richieste girano in thread diversi)
+    with BLOCCO_GRAFICI:
+        fig, ax = plt.subplots(figsize=(8, 3.6))
+        posizioni = list(range(len(REPARTI)))
+        valori = [tassi[r] for r in REPARTI]
+        soglie = [SOGLIE["scarti"][r]["soglia"] for r in REPARTI]
+        colori = [ARANCIONE if v > s else VERDE for v, s in zip(valori, soglie)]
 
-    ax.barh(posizioni, valori, color=colori, height=0.55)
-    massimo = max(valori + soglie) * 1.25
+        ax.barh(posizioni, valori, color=colori, height=0.55)
+        massimo = max(valori + soglie) * 1.25
 
-    for y, valore, soglia in zip(posizioni, valori, soglie):
-        # Linea tratteggiata della soglia del reparto, all'altezza della sua barra
-        ax.vlines(soglia, y - 0.38, y + 0.38, colors=GRIGIO_SOGLIA, linestyles="--", linewidth=1.4)
-        # Asse y invertito: va="top" mette la scritta sotto la fine della linea, senza sovrapporla
-        ax.text(soglia, y + 0.40, f"soglia {_numero_it(soglia, 1)}%", ha="center", va="top",
-                fontsize=8, color=GRIGIO_SOGLIA)
-        # Etichetta con il valore alla fine della barra
-        ax.text(valore + massimo * 0.01, y, f"{_numero_it(valore)}%", va="center", fontsize=10)
+        for y, valore, soglia in zip(posizioni, valori, soglie):
+            # Linea tratteggiata della soglia del reparto, all'altezza della sua barra
+            ax.vlines(soglia, y - 0.38, y + 0.38, colors=GRIGIO_SOGLIA, linestyles="--", linewidth=1.4)
+            # Asse y invertito: va="top" mette la scritta sotto la fine della linea, senza sovrapporla
+            ax.text(soglia, y + 0.40, f"soglia {_numero_it(soglia, 1)}%", ha="center", va="top",
+                    fontsize=8, color=GRIGIO_SOGLIA)
+            # Etichetta con il valore alla fine della barra
+            ax.text(valore + massimo * 0.01, y, f"{_numero_it(valore)}%", va="center", fontsize=10)
 
-    ax.set_yticks(posizioni, [r.capitalize() for r in REPARTI])
-    # Asse invertito (ortofrutta in alto) con margine in basso per la scritta della soglia
-    ax.set_ylim(len(REPARTI) - 0.25, -0.6)
-    ax.set_xlim(0, massimo)
-    ax.set_xlabel("Tasso di scarto (% delle vendite del reparto)")
-    ax.set_title(f"Tasso di scarto per reparto – {negozio}, {_data_it(ieri)}")
-    for lato in ("top", "right"):
-        ax.spines[lato].set_visible(False)
-    fig.tight_layout()
-    fig.savefig(percorso, dpi=110)
-    plt.close(fig)
+        ax.set_yticks(posizioni, [r.capitalize() for r in REPARTI])
+        # Asse invertito (ortofrutta in alto) con margine in basso per la scritta della soglia
+        ax.set_ylim(len(REPARTI) - 0.25, -0.6)
+        ax.set_xlim(0, massimo)
+        ax.set_xlabel("Tasso di scarto (% delle vendite del reparto)")
+        ax.set_title(f"Tasso di scarto per reparto – {negozio}, {_data_it(ieri)}")
+        for lato in ("top", "right"):
+            ax.spines[lato].set_visible(False)
+        fig.tight_layout()
+        fig.savefig(percorso, dpi=110)
+        plt.close(fig)
 
 
 # ---------------------------------------------------------------------------

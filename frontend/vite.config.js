@@ -20,7 +20,8 @@ export default defineConfig(({ mode }) => {
       // Le chiamate a /api vanno al back end Node.js: il browser parla solo con Vite
       proxy: {
         '/api': {
-          target: `http://localhost:${portaBackend}`,
+          // 127.0.0.1 e non localhost: il back end ascolta solo sull'indirizzo IPv4 di loopback
+          target: `http://127.0.0.1:${portaBackend}`,
           changeOrigin: true,
         },
       },

@@ -2,10 +2,14 @@
 import ReactMarkdown from 'react-markdown'
 import ToolBadges from './ToolBadges.jsx'
 
-// I link nelle risposte si aprono in una nuova scheda
-// (node è il nodo markdown passato da react-markdown: non va messo tra gli attributi HTML)
+// Il markdown scritto dall'LLM non deve far caricare nulla dall'esterno:
+// - i link restano semplice testo (niente indirizzo cliccabile);
+// - le immagini non vengono caricate: si mostra solo il testo alternativo, se c'è.
+// Un'immagine esterna verrebbe scaricata dal browser in automatico e potrebbe far uscire
+// dati nell'indirizzo. I grafici del data agent non passano da qui: sono <img> a parte.
 const COMPONENTI_MARKDOWN = {
-  a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noopener noreferrer" />,
+  a: ({ children }) => <span>{children}</span>,
+  img: ({ alt }) => (alt ? <span className="immagine-rimossa">[{alt}]</span> : null),
 }
 
 // Testo alternativo dei grafici: se c'è un grafico per ogni analisi, uso la domanda dell'analisi

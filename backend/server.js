@@ -12,6 +12,7 @@ require("dotenv").config({ path: path.resolve(__dirname, "..", ".env"), quiet: t
 const express = require("express");
 const cors = require("cors");
 const OpenAI = require("openai");
+const { rateLimit } = require("express-rate-limit");
 
 const { STRUMENTI, STRUMENTI_SENZA_PARAMETRI, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent } = require("./strumenti");
 const { creaClient } = require("./rag/config");
@@ -21,6 +22,8 @@ const { creaClient } = require("./rag/config");
 // ---------------------------------------------------------------------------
 
 const PORTA = Number(process.env.BACKEND_PORT || 3001);
+// Solo localhost: il back end non deve essere raggiungibile dagli altri dispositivi della rete
+const INDIRIZZO_ASCOLTO = "127.0.0.1";
 const ORIGINE_FRONT_END = "http://localhost:5173";
 
 const LUNGHEZZA_MASSIMA_MESSAGGIO = 1000; // caratteri
@@ -28,6 +31,20 @@ const MESSAGGI_IN_MEMORIA = 10;           // ultimi messaggi della sessione mand
 const MAX_ITERAZIONI = 6;                 // chiamate al modello per ogni richiesta
 const MAX_TOKEN_RISPOSTA = 1000;          // token massimi generati in una singola chiamata
 const TIMEOUT_OPENAI_MS = 60_000;         // tempo massimo per una singola chiamata a OpenAI
+
+// Sessioni in memoria: numero massimo e scadenza dopo un periodo di inattività
+const MAX_SESSIONI = 100;
+const SCADENZA_SESSIONE_MS = 60 * 60 * 1000; // 1 ora
+
+// Legge un numero intero positivo dal .env, con un valore di default se manca o non è valido
+function numeroDaEnv(nome, predefinito) {
+  const valore = Number(process.env[nome]);
+  return Number.isInteger(valore) && valore > 0 ? valore : predefinito;
+}
+
+// Limite di frequenza su /api/chat e tetto di token giornaliero (configurabili nel .env)
+const LIMITE_RICHIESTE_MINUTO = numeroDaEnv("LIMITE_RICHIESTE_MINUTO", 10);
+const TETTO_TOKEN_GIORNALIERO = numeroDaEnv("TETTO_TOKEN_GIORNALIERO", 300_000);
 
 // Tetto facoltativo alle chiamate OpenAI per tutta la vita del server (usato dal test).
 // Conta le chiamate dell'orchestratore, gli embedding della ricerca e, per il data agent,
@@ -72,9 +89,13 @@ const DEFINIZIONI_STRUMENTI = JSON.parse(fs.readFileSync(path.join(CARTELLA_PROM
 // Client OpenAI: nessun nuovo tentativo automatico, per non moltiplicare le chiamate
 const openai = new OpenAI({ maxRetries: 0, timeout: TIMEOUT_OPENAI_MS });
 
-// Memoria delle conversazioni: sessionId -> elenco di messaggi {role, content}.
+// Memoria delle conversazioni: sessionId -> { messaggi, ultimoUso }.
 // Si conservano solo le domande dell'utente e le risposte finali, non i passaggi intermedi.
+// L'ordine della Map è quello dell'ultimo uso: la prima sessione è la meno recente.
 const sessioni = new Map();
+
+// Token usati oggi (orchestratore + data agent), azzerati al cambio di data
+const consumoGiornaliero = { giorno: oggiLocale(), token: 0 };
 
 // ---------------------------------------------------------------------------
 // Funzioni di supporto
@@ -84,6 +105,60 @@ const sessioni = new Map();
 function formattaData(data) {
   return data.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
 }
+
+// Data di oggi (ora locale) nel formato AAAA-MM-GG, per azzerare il tetto giornaliero
+function oggiLocale() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Token usati oggi; al cambio di data il contatore riparte da zero
+function tokenUsatiOggi() {
+  const oggi = oggiLocale();
+  if (consumoGiornaliero.giorno !== oggi) {
+    consumoGiornaliero.giorno = oggi;
+    consumoGiornaliero.token = 0;
+  }
+  return consumoGiornaliero.token;
+}
+
+function aggiungiTokenOggi(token) {
+  tokenUsatiOggi(); // eventuale azzeramento al cambio di data
+  consumoGiornaliero.token += token;
+}
+
+// Blocca la richiesta se il tetto di token di oggi è già stato raggiunto
+function controllaTettoGiornaliero() {
+  if (tokenUsatiOggi() >= TETTO_TOKEN_GIORNALIERO) {
+    throw new ErroreUtente(429, "È stato raggiunto il limite di utilizzo giornaliero dell'assistente. Riprova domani.");
+  }
+}
+
+// Elimina le sessioni inattive da più di un'ora
+function pulisciSessioni() {
+  const limite = Date.now() - SCADENZA_SESSIONE_MS;
+  for (const [id, sessione] of sessioni) {
+    if (sessione.ultimoUso < limite) sessioni.delete(id);
+  }
+}
+
+// Storico di una sessione (vuoto se non esiste o è scaduta)
+function leggiSessione(sessionId) {
+  pulisciSessioni();
+  return sessioni.get(sessionId)?.messaggi ?? [];
+}
+
+// Salva lo storico e sposta la sessione in fondo (la più recente); oltre 100 si toglie la più vecchia
+function salvaSessione(sessionId, messaggi) {
+  sessioni.delete(sessionId);
+  sessioni.set(sessionId, { messaggi, ultimoUso: Date.now() });
+  while (sessioni.size > MAX_SESSIONI) {
+    sessioni.delete(sessioni.keys().next().value);
+  }
+}
+
+// Errore lanciato quando il front end chiude la richiesta prima della risposta
+class RichiestaAnnullata extends Error {}
 
 // Errore con un messaggio fisso in italiano, che si può mostrare al front end
 class ErroreUtente extends Error {
@@ -142,8 +217,9 @@ function leggiDomanda(argomentiJson) {
  * Fa rispondere l'LLM al messaggio, eseguendo gli strumenti che sceglie.
  * @param {Array} storico - messaggi precedenti della sessione
  * @param {string} messaggio - nuovo messaggio dell'utente
+ * @param {AbortSignal} segnale - si attiva se il front end chiude la richiesta
  */
-async function rispondi(storico, messaggio) {
+async function rispondi(storico, messaggio, segnale) {
   // Messaggi mandati al modello: sistema + ultimi messaggi della sessione + nuovo messaggio
   const messaggi = [
     { role: "system", content: PROMPT_SISTEMA },
@@ -153,7 +229,14 @@ async function rispondi(storico, messaggio) {
 
   const esito = { risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null, token: 0 };
 
+  // Se il front end ha chiuso la richiesta non si fanno altre chiamate
+  const controllaAnnullamento = () => {
+    if (segnale.aborted) throw new RichiestaAnnullata();
+  };
+
   for (let iterazione = 1; iterazione <= MAX_ITERAZIONI; iterazione++) {
+    controllaAnnullamento();
+    controllaTettoGiornaliero();
     if (!prenotaChiamate(1)) {
       throw new ErroreUtente(429, "È stato raggiunto il numero massimo di chiamate al servizio di intelligenza artificiale.");
     }
@@ -163,22 +246,29 @@ async function rispondi(storico, messaggio) {
 
     let completamento;
     try {
-      completamento = await openai.chat.completions.create({
-        model: MODELLO,
-        messages: messaggi,
-        tools: DEFINIZIONI_STRUMENTI,
-        tool_choice: ultimaIterazione ? "none" : "auto",
-        // Uno strumento alla volta: nelle domande ibride la procedura si cerca DOPO l'analisi
-        parallel_tool_calls: false,
-        temperature: 0,
-        max_completion_tokens: MAX_TOKEN_RISPOSTA,
-      });
+      completamento = await openai.chat.completions.create(
+        {
+          model: MODELLO,
+          messages: messaggi,
+          tools: DEFINIZIONI_STRUMENTI,
+          tool_choice: ultimaIterazione ? "none" : "auto",
+          // Uno strumento alla volta: nelle domande ibride la procedura si cerca DOPO l'analisi
+          parallel_tool_calls: false,
+          temperature: 0,
+          max_completion_tokens: MAX_TOKEN_RISPOSTA,
+        },
+        // Il segnale interrompe la chiamata in corso se il front end chiude la richiesta
+        { signal: segnale }
+      );
     } catch (errore) {
+      if (segnale.aborted) throw new RichiestaAnnullata();
       console.error(`[openai] chiamata non riuscita (${errore.constructor.name})`);
       throw erroreOpenAI(errore);
     }
 
-    esito.token += completamento.usage?.total_tokens ?? 0;
+    const tokenChiamata = completamento.usage?.total_tokens ?? 0;
+    esito.token += tokenChiamata;
+    aggiungiTokenOggi(tokenChiamata);
     const risposta = completamento.choices[0].message;
     const chiamate = risposta.tool_calls ?? [];
 
@@ -203,6 +293,7 @@ async function rispondi(storico, messaggio) {
       } else if (!senzaParametri && !domanda) {
         contenuto = "Errore: manca il parametro obbligatorio \"domanda\".";
       } else {
+        controllaAnnullamento();
         // Prenoto le chiamate OpenAI che lo strumento può fare (caso peggiore):
         // 5 per il data agent, 1 embedding per la ricerca, nessuna per il briefing (solo pandas)
         const chiamateStrumento = { analizza_dati: CHIAMATE_MASSIME_DATA_AGENT, cerca_procedure: 1, prepara_briefing: 0 }[nome];
@@ -210,8 +301,15 @@ async function rispondi(storico, messaggio) {
           contenuto = "Errore: raggiunto il numero massimo di chiamate consentite, lo strumento non è stato eseguito. Avvisa lo Store Manager.";
         } else {
           esito.strumenti.push({ nome, domanda });
-          const risultato = senzaParametri ? await STRUMENTI[nome]() : await STRUMENTI[nome](domanda);
+          const risultato = senzaParametri ? await STRUMENTI[nome](segnale) : await STRUMENTI[nome](domanda, segnale);
+          controllaAnnullamento();
           contenuto = risultato.testoPerLLM;
+
+          // Token usati dal data agent (se li comunica): contano nella risposta e nel tetto giornaliero
+          if (risultato.token) {
+            esito.token += risultato.token;
+            aggiungiTokenOggi(risultato.token);
+          }
 
           // Fonti, grafici e pulizia restano al server e vanno solo al front end
           for (const fonte of risultato.fonti ?? []) {
@@ -242,16 +340,36 @@ const app = express();
 app.use(cors({ origin: ORIGINE_FRONT_END }));
 app.use(express.json({ limit: "20kb" }));
 
+// Limite di frequenza su /api/chat: oltre la soglia risponde 429 con un messaggio in italiano
+const limiteFrequenza = rateLimit({
+  windowMs: 60 * 1000,
+  limit: LIMITE_RICHIESTE_MINUTO,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: { errore: "Troppe richieste in poco tempo: aspetta un minuto e riprova." },
+});
+
 // Domanda dell'utente: {"sessionId": "...", "messaggio": "..."}
-app.post("/api/chat", async (req, res, next) => {
+app.post("/api/chat", limiteFrequenza, async (req, res, next) => {
   const inizio = Date.now();
+
+  // Se il front end chiude la connessione prima della risposta, si interrompono ciclo e chiamate.
+  // Si ascolta "close" sulla risposta: sulla richiesta scatta già quando il corpo è stato letto.
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+
   try {
     const { sessionId, messaggio } = req.body ?? {};
 
     if (typeof sessionId !== "string" || !sessionId.trim() || sessionId.length > 100) {
       throw new ErroreUtente(400, "Sessione non valida.");
     }
-    if (typeof messaggio !== "string" || !messaggio.trim()) {
+    if (typeof messaggio !== "string") {
+      throw new ErroreUtente(400, "Il messaggio deve essere un testo.");
+    }
+    if (!messaggio.trim()) {
       throw new ErroreUtente(400, "Il messaggio è vuoto: scrivi una domanda.");
     }
     const testo = messaggio.trim();
@@ -259,23 +377,30 @@ app.post("/api/chat", async (req, res, next) => {
       throw new ErroreUtente(400, `Il messaggio è troppo lungo: al massimo ${LUNGHEZZA_MASSIMA_MESSAGGIO} caratteri.`);
     }
 
-    const storico = sessioni.get(sessionId) ?? [];
-    const esito = await rispondi(storico, testo);
+    controllaTettoGiornaliero();
+    const storico = leggiSessione(sessionId);
+    const esito = await rispondi(storico, testo, controller.signal);
 
     // In memoria salvo solo domanda e risposta finale, e solo se la richiesta è riuscita
-    storico.push({ role: "user", content: testo }, { role: "assistant", content: esito.risposta });
-    sessioni.set(sessionId, storico.slice(-MESSAGGI_IN_MEMORIA));
+    const aggiornato = [...storico, { role: "user", content: testo }, { role: "assistant", content: esito.risposta }];
+    salvaSessione(sessionId, aggiornato.slice(-MESSAGGI_IN_MEMORIA));
 
     // Log della richiesta: strumenti, token e tempo
     const elencoStrumenti = esito.strumenti.map((s) => s.nome).join(" -> ") || "nessuno";
     const secondi = ((Date.now() - inizio) / 1000).toFixed(1);
     console.log(
-      `[chat] strumenti: ${elencoStrumenti} | token: ${esito.token} | tempo: ${secondi}s | chiamate OpenAI totali: ${chiamateOpenAIUsate}`
+      `[chat] strumenti: ${elencoStrumenti} | token: ${esito.token} | tempo: ${secondi}s | ` +
+        `token oggi: ${tokenUsatiOggi()}/${TETTO_TOKEN_GIORNALIERO} | chiamate OpenAI totali: ${chiamateOpenAIUsate}`
     );
 
     res.json(esito);
   } catch (errore) {
     const secondi = ((Date.now() - inizio) / 1000).toFixed(1);
+    if (errore instanceof RichiestaAnnullata) {
+      // Il front end non aspetta più: nessuna risposta da inviare e niente salvato in memoria
+      console.log(`[chat] richiesta annullata dal client | tempo: ${secondi}s | chiamate OpenAI totali: ${chiamateOpenAIUsate}`);
+      return;
+    }
     console.log(`[chat] richiesta non riuscita | tempo: ${secondi}s | chiamate OpenAI totali: ${chiamateOpenAIUsate}`);
     next(errore);
   }
@@ -317,6 +442,12 @@ app.use((errore, req, res, next) => {
   res.status(500).json({ errore: "Si è verificato un errore interno. Riprova più tardi." });
 });
 
-app.listen(PORTA, () => {
-  console.log(`Orchestratore in ascolto su http://localhost:${PORTA} (modello: ${MODELLO})`);
+// Pulizia periodica delle sessioni scadute (unref: non impedisce al processo di chiudersi)
+setInterval(pulisciSessioni, 10 * 60 * 1000).unref();
+
+app.listen(PORTA, INDIRIZZO_ASCOLTO, () => {
+  console.log(
+    `Orchestratore in ascolto su http://${INDIRIZZO_ASCOLTO}:${PORTA} (modello: ${MODELLO}, ` +
+      `max ${LIMITE_RICHIESTE_MINUTO} richieste/minuto, tetto ${TETTO_TOKEN_GIORNALIERO} token/giorno)`
+  );
 });

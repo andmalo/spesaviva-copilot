@@ -748,3 +748,9 @@ button:disabled {
     bottom: 0;
   }
 }
+
+/* Testo alternativo delle immagini scritte dall'LLM, che non vengono caricate */
+.immagine-rimossa {
+  color: var(--testo-secondario);
+  font-style: italic;
+}

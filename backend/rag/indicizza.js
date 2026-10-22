@@ -99,6 +99,7 @@ async function main() {
 
 main().catch((errore) => {
   // Mostro solo il messaggio, mai la configurazione del client (che non contiene comunque la chiave)
-  console.error("Indicizzazione non riuscita:", errore.message);
+  // Messaggio fisso: il testo originale (es. errori di OpenAI) può contenere parti della chiave
+  console.error(`Indicizzazione non riuscita (${errore.name}): controlla che ChromaDB sia avviato e che la chiave OpenAI nel .env sia valida.`);
   process.exit(1);
 });

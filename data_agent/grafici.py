@@ -11,6 +11,7 @@ import json
 import logging
 import math
 import re
+import threading
 
 # Backend "Agg": matplotlib disegna solo su file, senza aprire finestre
 import matplotlib
@@ -40,6 +41,9 @@ SINONIMI_UNITA = {"euro": "€", "eur": "€", "percentuale": "%", "percento": "
 MAX_VALORI = 12
 
 MAX_CARATTERI_SPEC = 5000  # una spec valida (max 12 valori) è lunga poche centinaia di caratteri
+
+# Lucchetto condiviso da tutti i grafici del servizio (anche quello del briefing)
+BLOCCO_GRAFICI = threading.Lock()
 
 logger = logging.getLogger("data_agent")
 
@@ -206,32 +210,34 @@ def disegna_grafico(spec, percorso) -> tuple[bool, str | None]:
             colori.append(VERDE)
 
     # Altezza proporzionale al numero di barre
-    fig, ax = plt.subplots(figsize=(8, 1.4 + 0.55 * len(valori)))
-    posizioni = list(range(len(valori)))
-    ax.barh(posizioni, valori, color=colori, height=0.6)
+    # pyplot non è thread-safe: un grafico alla volta (le richieste girano in thread diversi)
+    with BLOCCO_GRAFICI:
+        fig, ax = plt.subplots(figsize=(8, 1.4 + 0.55 * len(valori)))
+        posizioni = list(range(len(valori)))
+        ax.barh(posizioni, valori, color=colori, height=0.6)
 
-    riferimento = max(valori + ([soglia] if soglia is not None else []))
-    massimo = riferimento * 1.3 if riferimento > 0 else 1
+        riferimento = max(valori + ([soglia] if soglia is not None else []))
+        massimo = riferimento * 1.3 if riferimento > 0 else 1
 
-    # Etichetta con il valore alla fine di ogni barra
-    for y, valore in zip(posizioni, valori):
-        ax.text(valore + massimo * 0.01, y, _formatta(valore, unita), va="center", fontsize=10)
+        # Etichetta con il valore alla fine di ogni barra
+        for y, valore in zip(posizioni, valori):
+            ax.text(valore + massimo * 0.01, y, _formatta(valore, unita), va="center", fontsize=10)
 
-    # Linea tratteggiata della soglia, se presente
-    if soglia is not None:
-        ax.axvline(soglia, color=GRIGIO_SOGLIA, linestyle="--", linewidth=1.4)
-        ax.text(soglia, -0.7, f"soglia {_formatta(soglia, unita)}", ha="center", va="bottom",
-                fontsize=8, color=GRIGIO_SOGLIA)
+        # Linea tratteggiata della soglia, se presente
+        if soglia is not None:
+            ax.axvline(soglia, color=GRIGIO_SOGLIA, linestyle="--", linewidth=1.4)
+            ax.text(soglia, -0.7, f"soglia {_formatta(soglia, unita)}", ha="center", va="bottom",
+                    fontsize=8, color=GRIGIO_SOGLIA)
 
-    ax.set_yticks(posizioni, etichette)
-    # Asse invertito (prima etichetta in alto), con spazio sopra per la scritta della soglia
-    ax.set_ylim(len(valori) - 0.4, -0.9 if soglia is not None else -0.6)
-    ax.set_xlim(0, massimo)
-    ax.set_xlabel(UNITA[unita])
-    ax.set_title(spec_valida["titolo"])
-    for lato in ("top", "right"):
-        ax.spines[lato].set_visible(False)
-    fig.tight_layout()
-    fig.savefig(percorso, dpi=110)
-    plt.close(fig)
+        ax.set_yticks(posizioni, etichette)
+        # Asse invertito (prima etichetta in alto), con spazio sopra per la scritta della soglia
+        ax.set_ylim(len(valori) - 0.4, -0.9 if soglia is not None else -0.6)
+        ax.set_xlim(0, massimo)
+        ax.set_xlabel(UNITA[unita])
+        ax.set_title(spec_valida["titolo"])
+        for lato in ("top", "right"):
+            ax.spines[lato].set_visible(False)
+        fig.tight_layout()
+        fig.savefig(percorso, dpi=110)
+        plt.close(fig)
     return True, None

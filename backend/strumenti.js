@@ -23,6 +23,13 @@ const TIMEOUT_BRIEFING_MS = 30_000; // il briefing non usa l'LLM: bastano pochi 
 // nel conteggio delle chiamate a OpenAI si considera sempre il caso peggiore
 const CHIAMATE_MASSIME_DATA_AGENT = 5;
 
+// Segnale che scatta per il timeout oppure quando il front end chiude la richiesta
+function segnaleConTimeout(millisecondi, segnaleRichiesta) {
+  const segnali = [AbortSignal.timeout(millisecondi)];
+  if (segnaleRichiesta) segnali.push(segnaleRichiesta);
+  return AbortSignal.any(segnali);
+}
+
 // Indirizzo base del data agent, sulla porta DATA_AGENT_PORT del .env
 function indirizzoDataAgent() {
   return `http://127.0.0.1:${process.env.DATA_AGENT_PORT || 8001}`;
@@ -32,7 +39,10 @@ function indirizzoDataAgent() {
  * Cerca nel manuale le sezioni pertinenti alla domanda.
  * All'LLM passa il testo di ogni sezione con file e titolo.
  */
-async function cerca_procedure(domanda) {
+async function cerca_procedure(domanda, segnaleRichiesta) {
+  // La ricerca in ChromaDB non si può interrompere a metà: si evita solo di iniziarla
+  if (segnaleRichiesta?.aborted) return { testoPerLLM: "Richiesta annullata.", fonti: [], chiamateOpenAI: 0 };
+
   let risultati;
   try {
     risultati = await cercaProcedure(domanda, NUMERO_RISULTATI);
@@ -66,7 +76,7 @@ async function cerca_procedure(domanda) {
  * All'LLM passa solo il testo della risposta: URL del grafico e riepilogo
  * della pulizia vengono conservati per il front end.
  */
-async function analizza_dati(domanda) {
+async function analizza_dati(domanda, segnaleRichiesta) {
   const erroreGenerico = {
     grafico: null,
     pulizia: null,
@@ -79,10 +89,12 @@ async function analizza_dati(domanda) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ domanda }),
-      signal: AbortSignal.timeout(TIMEOUT_DATA_AGENT_MS),
+      // Nota: l'analisi già partita nel data agent finisce comunque; si smette solo di aspettarla
+      signal: segnaleConTimeout(TIMEOUT_DATA_AGENT_MS, segnaleRichiesta),
     });
   } catch (errore) {
     // Servizio spento oppure tempo scaduto
+    if (segnaleRichiesta?.aborted) return { ...erroreGenerico, testoPerLLM: "Richiesta annullata." };
     const tempoScaduto = errore.name === "TimeoutError";
     console.error(`[analizza_dati] data agent non raggiungibile (${errore.name})`);
     return {
@@ -115,6 +127,8 @@ async function analizza_dati(domanda) {
     grafico: dati.grafico || null,
     pulizia: dati.pulizia ?? null,
     chiamateOpenAI: CHIAMATE_MASSIME_DATA_AGENT,
+    // Token usati dal data agent: contano nella risposta e nel tetto giornaliero
+    token: Number.isFinite(dati.token) ? dati.token : 0,
   };
 }
 
@@ -198,14 +212,14 @@ function testoBriefing({ kpi, controlli, anomalie }) {
  * Chiede al data agent il briefing del mattino (POST /briefing), calcolato senza LLM.
  * All'LLM passa solo KPI e anomalie in testo compatto: grafico e pulizia vanno al front end.
  */
-async function prepara_briefing() {
+async function prepara_briefing(segnaleRichiesta) {
   const erroreGenerico = { grafico: null, pulizia: null, chiamateOpenAI: 0 };
 
   let risposta;
   try {
     risposta = await fetch(`${indirizzoDataAgent()}/briefing`, {
       method: "POST",
-      signal: AbortSignal.timeout(TIMEOUT_BRIEFING_MS),
+      signal: segnaleConTimeout(TIMEOUT_BRIEFING_MS, segnaleRichiesta),
     });
   } catch (errore) {
     console.error(`[prepara_briefing] data agent non raggiungibile (${errore.name})`);
