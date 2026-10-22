@@ -27,3 +27,25 @@
 
 | N. | Strumento usato | Corretto (sì/no) | Note |
 |---|---|---|---|
+| 1 | cerca_procedure | sì | Procedura e numero assistenza (000 000 401) corretti; omesso il codice cliente SV-NEG01 |
+| 2 | cerca_procedure | sì | Completa |
+| 3 | cerca_procedure | sì | Completa; tra le sezioni consultate anche "Orari di apertura", non pertinente |
+| 4 | cerca_procedure | sì | Corretta; omessi i controlli preliminari della consegna |
+| 5 | cerca_procedure | sì | Tecnico e soglie corretti; omessa la gestione dei surgelati; sezione "Assistenza casse" non pertinente tra le consultate |
+| 6 | cerca_procedure | sì | Completa |
+| 7 | cerca_procedure | sì | Corretta; omessi anticipo alle 16:00 con il caldo e non cumulabilità |
+| 8 | cerca_procedure | sì | Corretta; impreciso "non si donano prodotti scaduti" (con TMC superato si possono donare) |
+| 9 | analizza_dati | sì | -27.239,54 € (-2,94%), esatto |
+| 10 | analizza_dati | sì | 24,36 € contro 25,10 € degli altri negozi, esatto; grafico prodotto |
+| 11 | analizza_dati | sì | Corregge la premessa: vendite +1,38%, scontrini -0,73%, scontrino medio +2,13% |
+| 12 | analizza_dati | sì | Ortofrutta 5,68%, esatto; grafico prodotto |
+| 13 | nessuno | **no** | Numeri inventati (98.765 € e 94.800 €). Veri: gen-ago 2026 96.702 € contro 96.806 € del 2025 (-0,1%) |
+| 14 | analizza_dati | **no** | Confronta i kg assoluti invece dei tassi. In %: NEG01 3,55%, in linea; da segnalare NEG05 (panetteria 12,1%) |
+| 15 | analizza_dati | sì | Correlazione 0,18, esatta |
+| 16 | analizza_dati | **no** | Correlazione positiva dovuta a una settimana parziale (solo il 31 agosto); con settimane complete circa 0 |
+| 17 | analizza_dati → cerca_procedure | parziale | Ordine corretto, ma nessun numero ("di quanto"). Scarti in euro +2,53%, tasso da 6,07% a 5,88%: dire "diminuiti" vale solo per il tasso |
+| 18 | analizza_dati → cerca_procedure | parziale | -2,06% esatto e "nel manuale non c'è" corretto; ma suggerisce promozioni (conoscenza generale) e spiega lo scostamento dall'obiettivo con il confronto sulla settimana prima |
+| 19 | analizza_dati → cerca_procedure | parziale | 4 ritardi ad agosto, esatto; non rileva che la settimana 10-16 agosto ne ha 3 (soglia di segnalazione raggiunta); chiude con una domanda |
+| 20 | prepara_briefing | sì | KPI e controlli corretti, nessuna anomalia, riconoscimento panetteria con bozza |
+
+Esito del test del 22 ottobre 2026 (gpt-4.1-mini): 14 corrette, 3 parziali, 3 sbagliate.

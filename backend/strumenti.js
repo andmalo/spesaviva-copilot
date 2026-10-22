@@ -64,9 +64,13 @@ async function cerca_procedure(domanda, segnaleRichiesta) {
   }
 
   const fonti = pertinenti.map((r) => ({ file: r.metadati.file, sezione: r.metadati.sezione }));
-  const testoPerLLM = pertinenti
-    .map((r) => `[File: ${r.metadati.file} | Sezione: ${r.metadati.sezione}]\n${r.testo}`)
-    .join("\n\n---\n\n");
+  const testoPerLLM =
+    pertinenti
+      .map((r) => `[File: ${r.metadati.file} | Sezione: ${r.metadati.sezione}]\n${r.testo}`)
+      .join("\n\n---\n\n") +
+    // Le sezioni mostrate al front end saranno solo quelle che l'LLM dichiara di aver usato
+    "\n\nAlla fine della risposta elenca le sezioni che hai usato davvero tra una riga [FONTI] " +
+    "e una riga [/FONTI], con i titoli esatti separati da punto e virgola. Non elencare le sezioni non usate.";
 
   return { testoPerLLM, fonti, chiamateOpenAI: 1 };
 }

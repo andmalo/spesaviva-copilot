@@ -206,6 +206,41 @@ function separaBozza(testo) {
   return { testo: resto, bozza: bozza || null };
 }
 
+// Toglie dalla risposta l'elenco delle sezioni usate, scritto tra [FONTI] e [/FONTI].
+// Restituisce { testo, titoli }: titoli è null se il blocco manca.
+function separaFonti(testo) {
+  const trovata = testo.match(/\[FONTI\]([\s\S]*?)(?:\[\/FONTI\]|$)/i);
+  if (!trovata) return { testo, titoli: null };
+  const titoli = trovata[1].split(/[;\n]/).map((t) => t.replace(/^[-*•\s"]+|["\s.]+$/g, "").trim()).filter(Boolean);
+  const resto = (testo.slice(0, trovata.index) + testo.slice(trovata.index + trovata[0].length)).trim();
+  return { testo: resto, titoli };
+}
+
+// Toglie l'ultima frase se offre altro: "Vuoi che…?", "Posso…?", "Se vuoi, posso…",
+// "Ti posso aiutare… se vuoi." Le domande di chiarimento vere restano: di solito non iniziano così,
+// e una frase normale che inizia con "Posso" senza essere un'offerta non viene toccata.
+const INIZI_OFFERTA = /^(vuoi|desideri|preferisci|posso|potrei|ti posso|ti serve|ti interessa|hai bisogno|serve altro|fammi sapere)\b/i;
+const INIZI_SE_VUOI = /^se (lo )?(vuoi|desideri|preferisci|ti serve|ti interessa)\b/i;
+function eOfferta(frase) {
+  if (frase.endsWith("?") && INIZI_OFFERTA.test(frase)) return true;
+  if (INIZI_SE_VUOI.test(frase)) return true;
+  return /^(ti posso|posso|potrei)\b/i.test(frase) && /\bse (lo )?(vuoi|desideri|preferisci)\b/i.test(frase);
+}
+function togliDomandaFinale(testo) {
+  // Si lavora sull'ultimo paragrafo, così elenchi e a capo restano intatti
+  const paragrafi = testo.trim().split(/\n/);
+  const frasi = paragrafi[paragrafi.length - 1].split(/(?<=[.!?])\s+/);
+  const ultima = frasi[frasi.length - 1].trim();
+  if (!eOfferta(ultima)) return testo.trim();
+  frasi.pop();
+  if (frasi.length > 0) paragrafi[paragrafi.length - 1] = frasi.join(" ");
+  else paragrafi.pop(); // l'offerta era un paragrafo a sé
+  return paragrafi.join("\n").trim() || testo.trim();
+}
+
+// Vero se il testo contiene cifre in euro o in percentuale (es. "98.765 euro", "4,2%")
+const CIFRE_CON_UNITA = /\d[\d.,]*\s*(€|%|euro\b)/i;
+
 // Legge gli argomenti generati dal modello e controlla che ci sia la domanda
 function leggiDomanda(argomentiJson) {
   try {
@@ -247,6 +282,11 @@ async function rispondi(storico, messaggio, segnale) {
     if (segnale.aborted) throw new RichiestaAnnullata();
   };
 
+  // Si attiva se il modello prova a dare numeri senza aver usato strumenti (una volta per richiesta)
+  let strumentoObbligatorio = false;
+  // Vale solo per la chiamata successiva al controllo: dopo, il modello torna libero di rispondere
+  let obbligoPerProssimaChiamata = false;
+
   for (let iterazione = 1; iterazione <= MAX_ITERAZIONI; iterazione++) {
     controllaAnnullamento();
     controllaTettoGiornaliero();
@@ -264,7 +304,7 @@ async function rispondi(storico, messaggio, segnale) {
           model: MODELLO,
           messages: messaggi,
           tools: DEFINIZIONI_STRUMENTI,
-          tool_choice: ultimaIterazione ? "none" : "auto",
+          tool_choice: ultimaIterazione ? "none" : obbligoPerProssimaChiamata ? "required" : "auto",
           // Uno strumento alla volta: nelle domande ibride la procedura si cerca DOPO l'analisi
           parallel_tool_calls: false,
           temperature: 0,
@@ -279,6 +319,7 @@ async function rispondi(storico, messaggio, segnale) {
       throw erroreOpenAI(errore);
     }
 
+    obbligoPerProssimaChiamata = false;
     const tokenChiamata = completamento.usage?.total_tokens ?? 0;
     esito.token += tokenChiamata;
     aggiungiTokenOggi(tokenChiamata);
@@ -287,7 +328,33 @@ async function rispondi(storico, messaggio, segnale) {
 
     // Nessuno strumento richiesto: questa è la risposta finale
     if (chiamate.length === 0) {
-      const testoFinale = risposta.content?.trim() || "Non sono riuscito a formulare una risposta. Prova a riformulare la domanda.";
+      let testoFinale = risposta.content?.trim() || "Non sono riuscito a formulare una risposta. Prova a riformulare la domanda.";
+
+      // Controllo fisso: cifre in euro o percentuale senza nessuno strumento usato = numeri inventati.
+      // Si scarta la risposta e si obbliga il modello a usare uno strumento (una sola volta).
+      if (esito.strumenti.length === 0 && CIFRE_CON_UNITA.test(testoFinale) && !strumentoObbligatorio && !ultimaIterazione) {
+        console.log("[chat] risposta con numeri senza strumenti: scartata, strumento obbligatorio");
+        strumentoObbligatorio = true;
+        obbligoPerProssimaChiamata = true;
+        messaggi.push({
+          role: "system",
+          content: "La risposta che stavi per dare contiene numeri ma non hai usato strumenti: è vietato. " +
+            "Usa analizza_dati per i numeri del negozio o cerca_procedure per il manuale, poi rispondi.",
+        });
+        continue;
+      }
+
+      // Sezioni del manuale: si mostrano solo quelle che il modello dichiara di aver usato,
+      // e solo se sono davvero tra quelle restituite dalla ricerca (così non può inventarne)
+      const { testo: senzaFonti, titoli } = separaFonti(testoFinale);
+      testoFinale = senzaFonti;
+      if (titoli && titoli.length > 0) {
+        const usate = esito.sezioni_consultate.filter((s) =>
+          titoli.some((t) => t.toLowerCase() === s.sezione.toLowerCase())
+        );
+        if (usate.length > 0) esito.sezioni_consultate = usate;
+      }
+
       // La bozza si separa solo se il briefing ha davvero restituito dei riconoscimenti
       if (esito.riconoscimenti.length > 0) {
         const { testo, bozza } = separaBozza(testoFinale);
@@ -296,6 +363,8 @@ async function rispondi(storico, messaggio, segnale) {
       } else {
         esito.risposta = separaBozza(testoFinale).testo; // un'eventuale bozza non richiesta si toglie
       }
+      // Niente domanda finale che offre altro (regola del prompt che il modello a volte ignora)
+      esito.risposta = togliDomandaFinale(esito.risposta);
       return esito;
     }
 
