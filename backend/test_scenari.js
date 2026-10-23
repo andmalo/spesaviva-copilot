@@ -140,6 +140,18 @@ async function main() {
     verifica(`riga delle eccedenze nei KPI del report (${kgReport} kg)`, s.dati.testoKpi.includes(`eccedenze donate: ${kgReport} kg`));
   }
 
+  console.log(`\n${"=".repeat(80)}\nConfronto tra negozi (agosto 2026, scenario "tranquilla")\n${"=".repeat(80)}`);
+  const c = await STRUMENTI.confronta_negozi({ inizio: "2026-08-01", fine: "2026-08-31" }, undefined, "tranquilla");
+  console.log(c.testoPerLLM.split("\n").map((r) => `  ${r}`).join("\n"));
+  verifica("NEG01 3,55% contro 3,71% degli altri negozi",
+    c.testoPerLLM.includes("NEG01: complessivo 3,55%") && c.testoPerLLM.includes("complessivo 3,71%"));
+  verifica("NEG05 panetteria 12,14% segnalata", c.testoPerLLM.includes("NEG05 panetteria 12,14%"));
+  verifica("regole fisse per Come l'ho calcolato", c.calcolo?.tipo === "regole");
+  // Scenario "fornitore" (NEG03, oggi 10 marzo 2026): la fine del periodo si ferma a ieri
+  const cf = await STRUMENTI.confronta_negozi({ inizio: "2026-03-01", fine: "2026-03-31" }, undefined, "fornitore");
+  verifica("scenario fornitore: confronto per NEG03 limitato al 9 marzo",
+    cf.testoPerLLM.includes("NEG03: complessivo") && cf.testoPerLLM.includes("limitato al 2026-03-09"));
+
   console.log(`\n${"=".repeat(80)}\nScenari non validi\n${"=".repeat(80)}`);
   const sessionId = crypto.randomUUID();
   for (const valore of ["inventato", "2026-01-01", { oggi: "2020-01-01", negozio: "NEG02" }, 3]) {

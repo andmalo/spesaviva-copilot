@@ -192,3 +192,36 @@ def test_eccedenze_settimana_uguali_a_quelle_del_report(dati_puliti):
     assert kpi["eccedenze_donate_kg"] == 160.9
     assert "- eccedenze donate: 160,9 kg" in descrivi_kpi(kpi)
     assert eccedenze_donate(dati_puliti, "NEG01", date(2026, 8, 31))["settimana"] == kpi["eccedenze_donate_kg"]
+
+
+# --- Confronto tra negozi: agosto 2026, valori già verificati a mano (domanda 14) ---
+
+from briefing import confronta_negozi  # noqa: E402
+from briefing import testo_confronto as descrivi_confronto  # noqa: E402
+
+
+def test_confronto_agosto_2026(dati_puliti):
+    c = confronta_negozi(dati_puliti, "NEG01", date(2026, 8, 1), date(2026, 8, 31))
+    mio = next(n for n in c["negozi"] if n["negozio"] == "NEG01")
+    assert mio["tassi"] == {"ortofrutta": 5.68, "panetteria": 4.9, "freschi": 2.45}
+    assert mio["totale"] == 3.55
+    assert c["altri_negozi"]["totale"] == 3.71 and c["altri_negozi"]["numero"] == 5
+    assert c["posizione"] == 3
+    assert [n["negozio"] for n in c["negozi"]] == ["NEG02", "NEG03", "NEG01", "NEG04", "NEG06", "NEG05"]
+    # NEG05 panetteria fuori scala: unico reparto sopra la soglia del manuale
+    assert c["sopra_soglia"] == [{"negozio": "NEG05", "reparto": "panetteria", "tasso": 12.14, "soglia": 8.0}]
+    testo = descrivi_confronto(c)
+    assert "NEG01: complessivo 3,55%" in testo and "altri 5 negozi insieme: complessivo 3,71%" in testo
+
+
+def test_confronto_senza_dati(dati_puliti):
+    with pytest.raises(ValueError):
+        confronta_negozi(dati_puliti, "NEG01", date(2030, 1, 1), date(2030, 1, 31))
+
+
+def test_testo_doppio_del_normale_non_ambiguo(dati_puliti):
+    # Il 10% è il DOPPIO del normale, non il valore normale
+    esito = controlla_soglie(dati_puliti, "NEG01", date(2025, 7, 7), date(2025, 7, 13))
+    testo = descrivi_soglie(esito)
+    assert "oltre il 10,0% (che è il doppio del valore normale)" in testo
+    assert "doppio del valore normale (10,0%)" not in testo

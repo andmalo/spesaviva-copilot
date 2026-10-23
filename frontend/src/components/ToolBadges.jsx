@@ -7,6 +7,7 @@ const CLASSI = {
   cerca_procedure: 'badge--manuale',
   prepara_briefing: 'badge--dati',
   controlla_soglie: 'badge--dati',
+  confronta_negozi: 'badge--dati',
 }
 
 export default function ToolBadges({ strumenti }) {

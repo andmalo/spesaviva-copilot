@@ -1,7 +1,7 @@
 // Test della valutazione delle risposte, SENZA chiamate a OpenAI.
 // Avvia un finto OpenAI locale (risponde sempre con lo stesso testo, senza strumenti) e il server
 // vero puntato su di esso con una chiave finta; i voti vanno in un file temporaneo.
-// Controlla: id delle risposte, voti validi e non validi, doppio voto, limite di frequenza,
+// Controlla: id delle risposte, voti validi e non validi, cambio di voto, limite di frequenza,
 // righe del file e riepilogo per strumento. Alla fine ferma il server.
 //
 // Uso (dalla cartella backend):  node test_feedback.js
@@ -14,7 +14,7 @@ const { spawn, execSync, execFileSync } = require("node:child_process");
 const PORTA_BACKEND = 3101;   // porte diverse da quelle normali: il test non tocca il progetto avviato
 const PORTA_OPENAI = 3102;
 const URL = `http://127.0.0.1:${PORTA_BACKEND}`;
-const LIMITE = 12;            // richieste al minuto per questo test (bastano per tutte le verifiche prima del 429)
+const LIMITE = 18;            // richieste al minuto per questo test (bastano per tutte le verifiche prima del 429)
 const FILE = path.join(os.tmpdir(), `feedback_test_${process.pid}.jsonl`);
 // Risposta lunga (oltre 500 caratteri) e senza cifre, così la guardia sui numeri non interviene
 const RISPOSTA_FINTA = "Ecco la procedura da seguire in negozio. " + "Controlla la merce e avvisa il responsabile. ".repeat(15);
@@ -95,8 +95,14 @@ async function main() {
     console.log("\nVoti validi");
     const su = await post("/api/feedback", { sessionId: sessione, idMessaggio: r1.corpo.id_messaggio, voto: "su" }); richieste++;
     verifica(`pollice su: stato ${su.stato}`, su.stato === 200);
-    const doppio = await post("/api/feedback", { sessionId: sessione, idMessaggio: r1.corpo.id_messaggio, voto: "giu" }); richieste++;
-    verifica(`secondo voto sulla stessa risposta rifiutato: stato ${doppio.stato}`, doppio.stato === 409);
+    // Cambio di voto: accettato fino a 5 voti per risposta (su, giu, su, giu, su), il sesto no
+    const stati = [];
+    for (const v of ["giu", "su", "giu", "su"]) {
+      stati.push((await post("/api/feedback", { sessionId: sessione, idMessaggio: r1.corpo.id_messaggio, voto: v })).stato); richieste++;
+    }
+    verifica(`cambio di voto accettato (stati ${stati.join(", ")})`, stati.every((x) => x === 200));
+    const troppi = await post("/api/feedback", { sessionId: sessione, idMessaggio: r1.corpo.id_messaggio, voto: "giu" }); richieste++;
+    verifica(`sesto voto sulla stessa risposta rifiutato: stato ${troppi.stato}, codice ${troppi.corpo?.codice}`, troppi.stato === 409);
     const giu = await post("/api/feedback", {
       sessionId: sessione, idMessaggio: r2.corpo.id_messaggio, voto: "giu", commento: "  Mancava la soglia del reparto.  ",
     }); richieste++;
@@ -104,8 +110,9 @@ async function main() {
 
     console.log("\nFile dei voti");
     const righe = fs.readFileSync(FILE, "utf-8").trim().split("\n").map((r) => JSON.parse(r));
-    verifica(`2 righe (una per voto valido): ${righe.length}`, righe.length === 2);
-    const [a, b] = righe;
+    verifica(`6 righe (una per voto accettato): ${righe.length}`, righe.length === 6);
+    verifica("i cambi di voto hanno lo stesso id", righe.slice(0, 5).every((r) => r.id === r1.corpo.id_messaggio));
+    const [a, b] = [righe[0], righe.at(-1)];
     console.log(`    riga 2: ${JSON.stringify({ ...b, risposta: `${b.risposta.slice(0, 40)}… (${b.risposta.length} caratteri)` })}`);
     verifica("campi: data, scenario, domanda, strumenti, voto, commento, risposta",
       ["data", "scenario", "domanda", "strumenti", "voto", "commento", "risposta"].every((k) => k in a));
@@ -124,7 +131,11 @@ async function main() {
     verifica(`chiamate al finto OpenAI: ${chiamateFinte} (2 domande)`, chiamateFinte === 2);
 
     console.log("\nRiepilogo per strumento");
-    console.log(execFileSync(process.execPath, ["riepilogo_feedback.js", FILE], { cwd: __dirname, encoding: "utf-8" }));
+    const riepilogo = execFileSync(process.execPath, ["riepilogo_feedback.js", FILE], { cwd: __dirname, encoding: "utf-8" });
+    console.log(riepilogo);
+    // Conta solo l'ultimo voto di ogni risposta: r1 finisce con "su", r2 è "giu"
+    verifica("riepilogo: 2 valutazioni, 1 positiva e 1 negativa",
+      riepilogo.includes("Valutazioni: 2") && /\(nessuno strumento\)\s+1\s+1/.test(riepilogo));
   } finally {
     if (process.platform === "win32") execSync(`taskkill /PID ${server.pid} /T /F`, { stdio: "ignore" });
     else server.kill();

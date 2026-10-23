@@ -71,7 +71,7 @@ def _regole_soglie() -> list[str]:
     s = SOGLIE
     return [
         "Tasso di scarto di un reparto = scarti del reparto / vendite del reparto × 100, giorno per giorno.",
-        *(f"Scarto {r}: soglia {_numero_it(v['soglia'], 1)}%; doppio del valore normale {_numero_it(v['doppio_normale'], 1)}%."
+        *(f"Scarto {r}: soglia {_numero_it(v['soglia'], 1)}%; oltre {_numero_it(v['doppio_normale'], 1)}% = doppio del valore normale."
           for r, v in s["scarti"].items()),
         f"Azioni obbligatorie: scarto sopra soglia per almeno {s['scarti_giorni_azioni']} giorni consecutivi.",
         f"Da comunicare all'Area Manager: scarto oltre il doppio del normale in un giorno, oppure sopra soglia "
@@ -248,8 +248,8 @@ def testo_soglie(esito: dict) -> str:
         else:
             righe.append(f"- Scarto {reparto}: soglia del {soglia}% mai superata per 3 giorni consecutivi.")
         for d in esito["scarti_oltre_doppio"][reparto]:
-            righe.append(f"- Scarto {reparto}: {_numero_it(d['tasso'])}% il {_data_it(d['giorno'])}, oltre il doppio del "
-                         f"valore normale ({_numero_it(d['doppio_normale'], 1)}%): da comunicare all'Area Manager.")
+            righe.append(f"- Scarto {reparto}: {_numero_it(d['tasso'])}% il {_data_it(d['giorno'])}, oltre il "
+                         f"{_numero_it(d['doppio_normale'], 1)}% (che è il doppio del valore normale): da comunicare all'Area Manager.")
     if esito["rotture"]:
         for e in esito["rotture"]:
             righe.append(f"- Referenze in rottura: SOGLIA SUPERATA, oltre {s['rotture_limite']} per {e['giorni']} giorni "
@@ -374,8 +374,8 @@ def _anomalie_del_briefing(esito: dict, ieri: date) -> list[dict]:
         if oltre_doppio or sette_giorni:
             motivi = []
             if oltre_doppio:
-                motivi.append(f"ieri {_numero_it(tasso_ieri)}%, oltre il doppio del valore normale "
-                              f"({_numero_it(soglie['doppio_normale'], 1)}%)")
+                motivi.append(f"ieri {_numero_it(tasso_ieri)}%, oltre il {_numero_it(soglie['doppio_normale'], 1)}% "
+                              f"(che è il doppio del valore normale)")
             if sette_giorni:
                 motivi.append(f"sopra soglia da {giorni} giorni consecutivi")
             anomalie.append({
@@ -692,4 +692,91 @@ REGOLE_BRIEFING = "\n".join([
     f"Riconoscimenti: tasso di scarto mensile di un reparto almeno il "
     f"{_numero_it(SOGLIE['miglioramento_riduzione_pct'], 0)}% sotto lo stesso mese dell'anno prima, "
     f"per {SOGLIE['miglioramento_mesi_consecutivi']} mesi completi consecutivi.",
+])
+
+
+# ---------------------------------------------------------------------------
+# Confronto tra negozi: tassi di scarto (rapporti, mai valori assoluti)
+# ---------------------------------------------------------------------------
+
+def _tassi_scarto(righe: pd.DataFrame) -> tuple[dict, float]:
+    """Tasso di scarto per reparto e complessivo (rapporto dei totali), in %."""
+    tassi = {r: round(float(righe[f"scarti_{r}"].sum() / righe[f"vendite_{r}"].sum() * 100), 2) for r in REPARTI}
+    scarti = sum(float(righe[f"scarti_{r}"].sum()) for r in REPARTI)
+    vendite = sum(float(righe[f"vendite_{r}"].sum()) for r in REPARTI)
+    return tassi, round(scarti / vendite * 100, 2)
+
+
+def confronta_negozi(df: pd.DataFrame, negozio: str, inizio: date, fine: date) -> dict:
+    """Confronta i tassi di scarto del negozio con quelli degli altri negozi nel periodo.
+
+    I negozi hanno dimensioni diverse: si confrontano solo rapporti (scarti / vendite dello
+    stesso reparto), mai euro o kg assoluti. "Altri negozi" = rapporto dei totali di tutti
+    gli altri, non la media dei loro tassi. Solleva ValueError se mancano dati.
+    """
+    righe = df[(df["data"].dt.date >= inizio) & (df["data"].dt.date <= fine)]
+    if righe[righe["negozio"] == negozio].empty:
+        raise ValueError(f"Nessun dato per il negozio {negozio} {_periodo_it(inizio, fine)}.")
+    altri = righe[righe["negozio"] != negozio]
+    if altri.empty:
+        raise ValueError(f"Nessun dato degli altri negozi {_periodo_it(inizio, fine)}.")
+
+    negozi = []
+    for nome, gruppo in righe.groupby("negozio"):
+        tassi, totale = _tassi_scarto(gruppo)
+        negozi.append({"negozio": nome, "tassi": tassi, "totale": totale,
+                       "giorni_con_dati": int(gruppo["data"].dt.date.nunique())})
+    negozi.sort(key=lambda n: n["totale"])  # dal tasso più basso al più alto
+    tassi_altri, totale_altri = _tassi_scarto(altri)
+    posizione = next(i for i, n in enumerate(negozi, start=1) if n["negozio"] == negozio)
+
+    # Reparti con il tasso medio del periodo sopra la soglia del manuale (che è giornaliera):
+    # non è un'anomalia secondo il manuale, ma un valore fuori scala da guardare
+    sopra_soglia = [
+        {"negozio": n["negozio"], "reparto": r, "tasso": n["tassi"][r], "soglia": SOGLIE["scarti"][r]["soglia"]}
+        for n in negozi for r in REPARTI if n["tassi"][r] > SOGLIE["scarti"][r]["soglia"]
+    ]
+    return {
+        "negozio": negozio, "inizio": inizio, "fine": fine,
+        "negozi": negozi,
+        "altri_negozi": {"tassi": tassi_altri, "totale": totale_altri, "numero": len(negozi) - 1},
+        "posizione": posizione,
+        "sopra_soglia": sopra_soglia,
+    }
+
+
+def testo_confronto(c: dict) -> str:
+    """Testo compatto del confronto, per l'LLM (numeri già calcolati, da riportare così come sono)."""
+    p = lambda v: f"{_numero_it(v)}%"
+    mio = next(n for n in c["negozi"] if n["negozio"] == c["negozio"])
+    altri = c["altri_negozi"]
+    righe = [
+        f"Confronto dei tassi di scarto (scarti / vendite dello stesso reparto), {_periodo_it(c['inizio'], c['fine'])}:",
+        f"- {c['negozio']}: complessivo {p(mio['totale'])}; "
+        + ", ".join(f"{r} {p(v)}" for r, v in mio["tassi"].items()),
+        f"- altri {altri['numero']} negozi insieme: complessivo {p(altri['totale'])}; "
+        + ", ".join(f"{r} {p(v)}" for r, v in altri["tassi"].items()),
+        f"- differenza del complessivo: {_numero_it(mio['totale'] - altri['totale'])} punti percentuali "
+        f"({'più basso' if mio['totale'] < altri['totale'] else 'più alto' if mio['totale'] > altri['totale'] else 'uguale'} degli altri negozi)",
+        f"- posizione di {c['negozio']}: {c['posizione']}° su {len(c['negozi'])} (1° = tasso complessivo più basso)",
+        "Tutti i negozi, dal tasso complessivo più basso al più alto:",
+        *(f"  {i}. {n['negozio']} {p(n['totale'])} (" + ", ".join(f"{r} {p(v)}" for r, v in n["tassi"].items()) + ")"
+          for i, n in enumerate(c["negozi"], start=1)),
+    ]
+    if c["sopra_soglia"]:
+        righe.append("Reparti con il tasso medio del periodo sopra la soglia giornaliera del manuale "
+                     "(valore fuori scala, non un'anomalia del manuale):")
+        righe += [f"  - {s['negozio']} {s['reparto']} {p(s['tasso'])} (soglia {_numero_it(s['soglia'], 1)}%)"
+                  for s in c["sopra_soglia"]]
+    return "\n".join(righe)
+
+
+REGOLE_CONFRONTO = "\n".join([
+    "Calcolo deterministico con pandas, senza modello linguistico, su tutti i negozi nel periodo richiesto.",
+    "- Tasso di scarto di un reparto = scarti del reparto / vendite del reparto × 100, sommando i giorni del periodo.",
+    "- Tasso complessivo = scarti dei tre reparti / vendite dei tre reparti × 100.",
+    "- Altri negozi = rapporto dei totali di tutti gli altri negozi insieme (non la media dei loro tassi).",
+    "- Si confrontano solo rapporti, mai euro o kg: i negozi hanno dimensioni diverse.",
+    "- Posizione: negozi ordinati dal tasso complessivo più basso al più alto.",
+    "- Reparti segnalati: tasso medio del periodo sopra la soglia giornaliera del manuale.",
 ])

@@ -15,6 +15,7 @@
   --manuale-testo: #1e4a7a;
   --avviso-sfondo: #fbefdf;
   --avviso-testo: #6e3c0c;
+  --rosso: #b42318;
 
   /* Font */
   --font-titoli: 'Bricolage Grotesque', system-ui, sans-serif;
@@ -923,10 +924,20 @@ button:disabled {
   opacity: 0.6;
 }
 
-.valutazione__pollice--scelto,
-.valutazione__pollice--scelto:disabled {
+/* Voto scelto: verde il pollice su, rosso il pollice giù */
+.valutazione__pollice--su,
+.valutazione__pollice--su:disabled {
   border-color: var(--verde);
-  color: var(--verde);
+  background: var(--verde);
+  color: #ffffff;
+  opacity: 1;
+}
+
+.valutazione__pollice--giu,
+.valutazione__pollice--giu:disabled {
+  border-color: var(--rosso);
+  background: var(--rosso);
+  color: #ffffff;
   opacity: 1;
 }
 

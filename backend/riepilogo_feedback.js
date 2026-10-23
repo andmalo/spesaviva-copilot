@@ -1,4 +1,5 @@
 // Riepilogo delle valutazioni: voti positivi e negativi per strumento, letti da feedback.jsonl.
+// Se il voto di una risposta è stato cambiato (stesso id), conta solo l'ultimo.
 // Uso (dalla cartella backend):  node riepilogo_feedback.js [percorso del file]
 const fs = require("node:fs");
 const path = require("node:path");
@@ -9,8 +10,7 @@ if (!fs.existsSync(percorso)) {
   process.exit(0);
 }
 
-const conteggi = new Map(); // strumento -> { positivi, negativi }
-let totale = 0;
+const ultimi = new Map(); // id della risposta -> ultimo voto (le righe senza id contano tutte)
 let righeNonValide = 0;
 for (const riga of fs.readFileSync(percorso, "utf-8").split(/\r?\n/)) {
   if (!riga.trim()) continue;
@@ -25,7 +25,12 @@ for (const riga of fs.readFileSync(percorso, "utf-8").split(/\r?\n/)) {
     righeNonValide++;
     continue;
   }
-  totale++;
+  ultimi.set(typeof voto.id === "string" ? voto.id : Symbol("senza id"), voto);
+}
+
+const conteggi = new Map(); // strumento -> { positivi, negativi }
+const totale = ultimi.size;
+for (const voto of ultimi.values()) {
   // Una risposta con più strumenti conta per ognuno di essi
   const strumenti = Array.isArray(voto.strumenti) && voto.strumenti.length ? voto.strumenti : ["(nessuno strumento)"];
   for (const nome of strumenti) {

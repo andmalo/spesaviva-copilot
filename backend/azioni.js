@@ -121,7 +121,7 @@ function superamenti(controlli) {
       elenco.push({
         indicatore: `scarto ${reparto} oltre il doppio del valore normale`,
         valore: `${numeroIt(g.tasso)}%`,
-        soglia: `${numeroIt(g.doppio_normale, 1)}%, doppio del valore normale`,
+        soglia: `${numeroIt(g.doppio_normale, 1)}%, che è il doppio del valore normale`,
         periodo: dataIt(g.giorno),
         reparto,
       });
@@ -207,7 +207,8 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
     const istruzioni =
       `Azione diretta: controllo delle soglie del manuale sulla settimana ${periodoLeggibile(periodo, "it")}. ` +
       "Scrivi un riassunto breve (al massimo 80 parole) dei risultati già calcolati qui sotto: per ogni controllo " +
-      "di' se la soglia è stata superata oppure no, con valore e date. Non aggiungere valutazioni proprie, cause o consigli.\n\n" +
+      "di' se la soglia è stata superata oppure no, con valore e date. Se un controllo dice \"da comunicare " +
+      "all'Area Manager\", riportalo. Non aggiungere valutazioni proprie, cause o consigli.\n\n" +
       r.testoPerLLM;
     const { testo, token } = await chiamaModello(componiMessaggi(storico, lingua, istruzioni, scenario), segnale);
     esito.token = token;

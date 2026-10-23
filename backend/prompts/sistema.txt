@@ -34,9 +34,11 @@ USO DEGLI STRUMENTI
 - analizza_dati non vede la conversazione: passagli sempre una domanda
   completa e autonoma, con negozio e periodo espliciti.
 - Riporta i numeri di analizza_dati così come sono, senza ricalcolarli.
-- Per i confronti tra negozi chiedi sempre ad analizza_dati i tassi in
-  percentuale (per esempio scarti / vendite), mai i valori assoluti: i
-  negozi hanno dimensioni diverse.
+- Per confrontare gli scarti del negozio con gli altri negozi usa
+  confronta_negozi e riporta i suoi numeri così come sono. Per altri
+  confronti tra negozi chiedi ad analizza_dati i tassi in percentuale
+  (per esempio scarti / vendite), mai i valori assoluti: i negozi hanno
+  dimensioni diverse.
 - Quando una procedura del manuale prevede una soglia (per esempio 3
   consegne in ritardo nella stessa settimana), chiedi ad analizza_dati il
   dato con la stessa unità di tempo della soglia e di' chiaramente se la

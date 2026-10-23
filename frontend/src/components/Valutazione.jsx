@@ -1,5 +1,5 @@
 // Valutazione di una risposta: pollice su (inviato subito) o pollice giù (con commento facoltativo).
-// Dopo l'invio compare "Grazie" e i pulsanti restano disattivati.
+// Dopo l'invio compare "Grazie"; il voto si può cambiare cliccando l'altro pollice.
 import { useId, useState } from 'react'
 import { useTesti } from '../i18n.js'
 
@@ -21,55 +21,69 @@ function Pollice({ giu = false }) {
  */
 export default function Valutazione({ idMessaggio, onValuta }) {
   const { t } = useTesti()
-  // iniziale -> (giu: commento) -> invio -> grazie; in caso di errore si torna indietro con un avviso
-  const [stato, setStato] = useState('iniziale')
-  const [voto, setVoto] = useState(null)
+  const [voto, setVoto] = useState(null)          // ultimo voto registrato dal back end
+  const [commentoAperto, setCommentoAperto] = useState(false)
   const [commento, setCommento] = useState('')
+  const [inInvio, setInInvio] = useState(false)
+  const [grazie, setGrazie] = useState(false)
   const [errore, setErrore] = useState(false)
   const idCampo = useId()
 
   async function invia(v, testo = '') {
-    setVoto(v)
-    setStato('invio')
+    setInInvio(true)
     setErrore(false)
     const ok = await onValuta(idMessaggio, v, testo.trim())
+    setInInvio(false)
     if (ok) {
-      setStato('grazie')
+      setVoto(v)
+      setCommentoAperto(false)
+      setGrazie(true)
     } else {
       setErrore(true)
-      setStato(v === 'giu' ? 'commento' : 'iniziale')
     }
   }
 
-  const bloccato = stato === 'invio' || stato === 'grazie'
+  function cliccaSu() {
+    setCommentoAperto(false)
+    if (voto !== 'su') invia('su') // stesso voto di prima: non serve reinviarlo
+  }
+
+  function cliccaGiu() {
+    // Il pollice giù chiede prima il commento (facoltativo); il voto parte con "Invia"
+    setGrazie(false)
+    setCommentoAperto(true)
+  }
+
+  // Pollice evidenziato: quello registrato, oppure il giù mentre si scrive il commento
+  const scelto = commentoAperto ? 'giu' : voto
 
   return (
     <div className="valutazione">
       <div className="valutazione__pulsanti">
         <button
           type="button"
-          className={`valutazione__pollice${voto === 'su' ? ' valutazione__pollice--scelto' : ''}`}
+          className={`valutazione__pollice${scelto === 'su' ? ' valutazione__pollice--su' : ''}`}
           aria-label={t('valutaUtile')}
-          aria-pressed={voto === 'su'}
-          disabled={bloccato || stato === 'commento'}
-          onClick={() => invia('su')}
+          aria-pressed={scelto === 'su'}
+          disabled={inInvio}
+          onClick={cliccaSu}
         >
           <Pollice />
         </button>
         <button
           type="button"
-          className={`valutazione__pollice${voto === 'giu' ? ' valutazione__pollice--scelto' : ''}`}
+          className={`valutazione__pollice${scelto === 'giu' ? ' valutazione__pollice--giu' : ''}`}
           aria-label={t('valutaNonUtile')}
-          aria-pressed={voto === 'giu'}
-          disabled={bloccato || stato === 'commento'}
-          onClick={() => { setVoto('giu'); setStato('commento') }}
+          aria-pressed={scelto === 'giu'}
+          disabled={inInvio || commentoAperto}
+          onClick={cliccaGiu}
         >
           <Pollice giu />
         </button>
-        {stato === 'grazie' && <span className="valutazione__grazie" role="status">{t('valutazioneGrazie')}</span>}
+        {grazie && !commentoAperto && <span className="valutazione__grazie" role="status">{t('valutazioneGrazie')}</span>}
       </div>
 
-      {stato === 'commento' && (
+      {commentoAperto && (
         <form className="valutazione__commento" onSubmit={(e) => { e.preventDefault(); invia('giu', commento) }}>
           <label htmlFor={idCampo}>{t('valutazioneCommento')}</label>
           <textarea
@@ -79,7 +93,9 @@ export default function Valutazione({ idMessaggio, onValuta }) {
             value={commento}
             onChange={(e) => setCommento(e.target.value)}
           />
-          <button type="submit" className="pulsante pulsante--secondario pulsante--compatto">{t('valutazioneInvia')}</button>
+          <button type="submit" className="pulsante pulsante--secondario pulsante--compatto" disabled={inInvio}>
+            {t('valutazioneInvia')}
+          </button>
         </form>
       )}
 

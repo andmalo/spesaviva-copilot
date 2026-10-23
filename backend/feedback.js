@@ -1,7 +1,8 @@
 // Valutazione delle risposte (pollice su / pollice giù, con commento facoltativo).
 // Il server ricorda ogni risposta inviata con un id; il front end manda solo sessionId, id, voto
 // e commento: domanda, strumenti e risposta salvati nel file vengono dal server, non dal browser.
-// Ogni voto è una riga JSON in feedback.jsonl (escluso da git).
+// Ogni voto è una riga JSON in feedback.jsonl (escluso da git). Il voto si può cambiare: si aggiunge
+// una nuova riga con lo stesso id e il riepilogo conta solo l'ultima.
 const fs = require("node:fs");
 const crypto = require("node:crypto");
 
@@ -10,6 +11,7 @@ const MAX_RISPOSTA_SALVATA = 500;      // caratteri della risposta salvati nel f
 const MAX_RISPOSTE_RICORDATE = 500;    // risposte votabili tenute in memoria (le più vecchie si dimenticano)
 const SCADENZA_MS = 60 * 60 * 1000;    // come le sessioni: dopo un'ora non si può più votare
 const VOTI = ["su", "giu"];
+const MAX_VOTI_PER_RISPOSTA = 5;       // primo voto + cambi successivi, per evitare abusi
 
 /**
  * @param {object} opzioni
@@ -17,7 +19,7 @@ const VOTI = ["su", "giu"];
  * @param {typeof Error} opzioni.ErroreUtente - errore con messaggio mostrabile (stato, messaggio, codice)
  */
 function creaFeedback({ percorsoFile, ErroreUtente }) {
-  // idMessaggio -> { sessionId, scenario, domanda, strumenti, risposta, creata, votata }
+  // idMessaggio -> { sessionId, scenario, domanda, strumenti, risposta, creata, voti }
   const risposte = new Map();
 
   function pulisci() {
@@ -34,7 +36,7 @@ function creaFeedback({ percorsoFile, ErroreUtente }) {
       strumenti: [...new Set((strumenti ?? []).map((s) => s.nome))],
       risposta: String(risposta ?? ""),
       creata: Date.now(),
-      votata: false,
+      voti: 0,
     });
     pulisci();
     return id;
@@ -60,9 +62,12 @@ function creaFeedback({ percorsoFile, ErroreUtente }) {
     if (!r || r.sessionId !== sessionId) {
       throw new ErroreUtente(404, "Questa risposta non si può più valutare.", "feedback_scaduto");
     }
-    if (r.votata) throw new ErroreUtente(409, "Questa risposta è già stata valutata.", "feedback_doppio");
+    if (r.voti >= MAX_VOTI_PER_RISPOSTA) {
+      throw new ErroreUtente(409, "Hai già cambiato troppe volte la valutazione di questa risposta.", "feedback_troppi_cambi");
+    }
 
     const riga = {
+      id: idMessaggio, // stesso id per i cambi di voto: nel riepilogo conta l'ultimo
       data: new Date().toISOString(),
       scenario: r.scenario,
       domanda: r.domanda,
@@ -73,7 +78,7 @@ function creaFeedback({ percorsoFile, ErroreUtente }) {
       risposta: r.risposta.length > MAX_RISPOSTA_SALVATA ? `${r.risposta.slice(0, MAX_RISPOSTA_SALVATA)}…` : r.risposta,
     };
     fs.appendFileSync(percorsoFile, JSON.stringify(riga) + "\n", "utf-8");
-    r.votata = true;
+    r.voti++;
     return riga;
   }
 

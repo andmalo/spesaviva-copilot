@@ -78,5 +78,31 @@
       },
       "strict": true
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "confronta_negozi",
+      "description": "Confronta i tassi di scarto del negozio (per reparto e complessivo, scarti / vendite) con quelli degli altri negozi nel periodo indicato. Calcolo fisso, senza modello linguistico. Usalo per ogni domanda che confronta gli scarti del negozio con gli altri negozi o con l'area. Restituisce i tassi di tutti i negozi, il valore degli altri negozi insieme, la posizione del negozio e i reparti fuori scala.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "inizio": {
+            "type": "string",
+            "description": "Primo giorno del periodo, formato AAAA-MM-GG"
+          },
+          "fine": {
+            "type": "string",
+            "description": "Ultimo giorno del periodo, formato AAAA-MM-GG"
+          }
+        },
+        "required": [
+          "inizio",
+          "fine"
+        ],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
   }
 ]

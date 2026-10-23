@@ -341,13 +341,55 @@ async function controlla_soglie({ inizio, fine }, segnaleRichiesta, scenario) {
   };
 }
 
+/**
+ * Confronta i tassi di scarto del negozio con quelli degli altri negozi nel periodo
+ * (POST /confronto del data agent), senza LLM: solo rapporti, mai valori assoluti.
+ * @param {{inizio: string, fine: string}} periodo - date nel formato AAAA-MM-GG
+ */
+async function confronta_negozi({ inizio, fine }, segnaleRichiesta, scenario) {
+  let risposta;
+  try {
+    risposta = await fetch(`${indirizzoDataAgent()}/confronto`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inizio, fine, scenario }),
+      signal: segnaleConTimeout(TIMEOUT_BRIEFING_MS, segnaleRichiesta),
+    });
+  } catch (errore) {
+    console.error(`[confronta_negozi] data agent non raggiungibile (${errore.name})`);
+    return {
+      testoPerLLM: "Errore: il confronto tra negozi non è disponibile. Avvisa lo Store Manager e non inventare numeri.",
+      chiamateOpenAI: 0,
+    };
+  }
+
+  if (!risposta.ok) {
+    let dettaglio = "errore sconosciuto";
+    try {
+      const corpo = await risposta.json();
+      if (typeof corpo.detail === "string") dettaglio = corpo.detail;
+    } catch {
+      // corpo non leggibile: resta il messaggio generico
+    }
+    console.error(`[confronta_negozi] il data agent ha risposto con stato ${risposta.status}`);
+    return { testoPerLLM: `Errore nel confronto tra negozi: ${dettaglio}`, chiamateOpenAI: 0 };
+  }
+
+  const dati = await risposta.json();
+  return {
+    testoPerLLM: dati.testo,
+    chiamateOpenAI: 0, // solo pandas, nessuna chiamata a OpenAI
+    calcolo: calcolo("regole", dati.regole),
+  };
+}
+
 // Mappa nome dello strumento -> funzione, usata dal ciclo di function calling
-const STRUMENTI = { cerca_procedure, analizza_dati, prepara_briefing, controlla_soglie };
+const STRUMENTI = { cerca_procedure, analizza_dati, prepara_briefing, controlla_soglie, confronta_negozi };
 
 // Strumenti che non ricevono il parametro "domanda"
 const STRUMENTI_SENZA_PARAMETRI = new Set(["prepara_briefing"]);
 // Strumenti che ricevono un periodo (inizio e fine) invece della domanda
-const STRUMENTI_CON_PERIODO = new Set(["controlla_soglie"]);
+const STRUMENTI_CON_PERIODO = new Set(["controlla_soglie", "confronta_negozi"]);
 
 module.exports = {
   STRUMENTI, STRUMENTI_SENZA_PARAMETRI, STRUMENTI_CON_PERIODO, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent,

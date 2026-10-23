@@ -37,8 +37,8 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from briefing import (REGOLE_BRIEFING, REGOLE_SOGLIE, controlla_soglie, kpi_periodo, prepara_briefing,
-                      soglie_superate, testo_kpi, testo_soglie)
+from briefing import (REGOLE_BRIEFING, REGOLE_CONFRONTO, REGOLE_SOGLIE, confronta_negozi, controlla_soglie,
+                      kpi_periodo, prepara_briefing, soglie_superate, testo_confronto, testo_kpi, testo_soglie)
 from grafici import disegna_grafico, estrai_blocco_grafico
 from pulizia import pulisci_dati, riepilogo_pulizia
 
@@ -438,19 +438,13 @@ def briefing(request: Request, richiesta: RichiestaBriefing | None = None):
     }
 
 
-@app.post("/soglie")
-def soglie(periodo: Periodo):
-    """Controllo delle soglie del manuale sul periodo indicato (solo pandas, nessun LLM).
-    Restituisce il testo compatto per l'LLM e i risultati strutturati."""
-    scenario = leggi_scenario(periodo.scenario)
+def leggi_periodo(periodo: Periodo, ieri: date) -> tuple[date, date, str]:
+    """Date del periodo controllate: (inizio, fine, nota). La fine non va oltre ieri dello scenario."""
     try:
         inizio = date.fromisoformat(periodo.inizio.strip())
         fine = date.fromisoformat(periodo.fine.strip())
     except ValueError:
         raise HTTPException(status_code=400, detail="Date non valide: usa il formato AAAA-MM-GG.")
-
-    # I dati arrivano fino a ieri: la fine del periodo non può andare oltre
-    ieri = date_scenario(scenario)[1]
     nota = ""
     if fine > ieri:
         fine, nota = ieri, f"I dati arrivano fino a ieri: il periodo è stato limitato al {ieri.isoformat()}."
@@ -458,6 +452,17 @@ def soglie(periodo: Periodo):
         raise HTTPException(status_code=400, detail="La data di inizio è successiva alla data di fine (o a ieri).")
     if (fine - inizio).days > MAX_GIORNI_PERIODO:
         raise HTTPException(status_code=400, detail=f"Periodo troppo lungo: al massimo {MAX_GIORNI_PERIODO} giorni.")
+    return inizio, fine, nota
+
+
+@app.post("/soglie")
+def soglie(periodo: Periodo):
+    """Controllo delle soglie del manuale sul periodo indicato (solo pandas, nessun LLM).
+    Restituisce il testo compatto per l'LLM e i risultati strutturati."""
+    scenario = leggi_scenario(periodo.scenario)
+    # I dati arrivano fino a ieri: la fine del periodo non può andare oltre
+    ieri = date_scenario(scenario)[1]
+    inizio, fine, nota = leggi_periodo(periodo, ieri)
 
     try:
         dati = nuova_copia_dati(ieri)
@@ -474,6 +479,24 @@ def soglie(periodo: Periodo):
     # Oltre ai controlli: KPI del periodo e soglie superate (servono al report per l'Area Manager)
     return {"testo": testo, "esito": esito, "kpi": kpi, "testo_kpi": testo_kpi(kpi), "superate": soglie_superate(esito),
             "regole": REGOLE_SOGLIE}
+
+
+@app.post("/confronto")
+def confronto(periodo: Periodo):
+    """Confronto dei tassi di scarto del negozio con gli altri negozi nel periodo (solo pandas, nessun LLM)."""
+    scenario = leggi_scenario(periodo.scenario)
+    ieri = date_scenario(scenario)[1]
+    inizio, fine, nota = leggi_periodo(periodo, ieri)
+    try:
+        esito = confronta_negozi(nuova_copia_dati(ieri), scenario["negozio"], inizio, fine)
+    except ValueError as errore:
+        # Messaggio scritto da noi in italiano (es. nessun dato nel periodo): si può mostrare
+        raise HTTPException(status_code=404, detail=str(errore))
+    except Exception as errore:
+        logger.error("Confronto tra negozi non riuscito: %s", type(errore).__name__)
+        raise HTTPException(status_code=500, detail=f"Errore interno nel confronto tra negozi ({type(errore).__name__}).")
+    testo = testo_confronto(esito) + ("\n" + nota if nota else "")
+    return {"testo": testo, "esito": esito, "regole": REGOLE_CONFRONTO}
 
 
 if __name__ == "__main__":

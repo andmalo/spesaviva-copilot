@@ -86,3 +86,36 @@
   0,378, ma è stata tagliata dal limite k=3.
 - Decisione: si resta su gpt-4.1-mini per contenere i costi.
 
+## 2026-10-23 – Scenari, avvio unico, eccedenze, trasparenza e valutazioni
+- Scenari della demo: tre casi pronti (giornata tranquilla, ondata di
+  caldo, fornitore in crisi) in un solo file, backend/scenari.json,
+  letto da back end, data agent e front end. Il browser invia solo
+  l'id: date e negozi liberi vengono rifiutati (400). Motivo: mostrare
+  le anomalie piantate nei dati senza modificare il .env, e senza
+  aprire la porta a date o negozi inventati. Il data agent riceve lo
+  scenario a ogni richiesta e lavora solo sui dati fino a "ieri".
+- Avvio con un solo comando: npm run setup e npm start (avvia.mjs).
+  Motivo: quattro terminali erano scomodi e facili da sbagliare. Il
+  manuale si reindicizza solo se manca, per non pagare gli embedding
+  a ogni setup. Ctrl+C ferma tutti i servizi.
+- Eccedenze donate: kg di ieri e dell'ultima settimana completa nel
+  briefing, e kg della settimana nel report. Solo chilogrammi, senza
+  conversioni non verificabili. Valori controllati a mano nei test.
+- "Come l'ho calcolato": il data agent restituisce il codice Python
+  eseguito (troncato e filtrato dai segreti), gli strumenti
+  deterministici le loro regole, scritte nel codice. Motivo: lo Store
+  Manager può controllare da dove viene un numero. Il codice è solo
+  testo, il front end non lo esegue mai.
+- Valutazioni con i pollici: un voto per risposta in
+  backend/feedback.jsonl (escluso da git). Domanda, strumenti e
+  risposta li prende il server dalla sua memoria, non dal browser.
+  node riepilogo_feedback.js conta i voti per strumento: serve a
+  capire quali strumenti funzionano peggio con utenti veri.
+- Verifica finale con chiamate reali (briefing negli scenari "caldo"
+  e "fornitore"): entrambi corretti. Due limiti emersi:
+  - per le consegne in ritardo la ricerca nel manuale non trova
+    sezioni sotto la distanza 0,40, quindi il briefing dice che non ci
+    sono procedure, anche se il manuale ne ha una;
+  - nelle azioni dirette il tetto MAX_CHIAMATE_OPENAI non conta gli
+    embedding della ricerca, quindi il contatore del server sottostima
+    le chiamate.
