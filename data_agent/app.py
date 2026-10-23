@@ -32,7 +32,7 @@ import uvicorn
 from dotenv import dotenv_values
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
-from langchain_core.callbacks import UsageMetadataCallbackHandler
+from langchain_core.callbacks import BaseCallbackHandler, UsageMetadataCallbackHandler
 from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -58,7 +58,7 @@ VALORI_ENV = dotenv_values(CARTELLA_PROGETTO / ".env")
 
 # Variabili non segrete: copiate in os.environ (se non già impostate) per il resto del codice
 VARIABILI_PUBBLICHE = {
-    "OPENAI_MODEL", "ORCHESTRATOR_MODEL", "DATA_RIFERIMENTO", "NEGOZIO_UTENTE",
+    "OPENAI_MODEL", "ORCHESTRATOR_MODEL", "DATA_AGENT_MODEL", "DATA_RIFERIMENTO", "NEGOZIO_UTENTE",
     "BACKEND_PORT", "DATA_AGENT_PORT", "CHROMA_PORT",
     "LIMITE_RICHIESTE_MINUTO", "TETTO_TOKEN_GIORNALIERO",
 }
@@ -149,6 +149,21 @@ def pulisci_grafici_vecchi() -> int:
     return cancellati
 
 
+def modello_data_agent() -> str:
+    """Modello del data agent: DATA_AGENT_MODEL se impostato, altrimenti OPENAI_MODEL."""
+    return os.getenv("DATA_AGENT_MODEL") or os.getenv("OPENAI_MODEL")
+
+
+class ContaChiamate(BaseCallbackHandler):
+    """Conta le chiamate al modello di una singola analisi (solo per il log)."""
+
+    def __init__(self):
+        self.chiamate = 0
+
+    def on_chat_model_start(self, serialized, messages, **kwargs):
+        self.chiamate += 1
+
+
 @asynccontextmanager
 async def ciclo_di_vita(app: FastAPI):
     """All'avvio controlla la configurazione, carica e pulisce i dati una sola volta."""
@@ -157,8 +172,8 @@ async def ciclo_di_vita(app: FastAPI):
     for variabile in ("OPENAI_MODEL", "DATA_RIFERIMENTO", "NEGOZIO_UTENTE"):
         if not os.getenv(variabile):
             raise RuntimeError(f"Variabile {variabile} mancante nel file .env")
-    if os.getenv("OPENAI_MODEL") == "nome-del-modello":
-        raise RuntimeError("OPENAI_MODEL nel file .env contiene ancora il valore di esempio")
+    if modello_data_agent() == "nome-del-modello":
+        raise RuntimeError("Il modello del data agent nel file .env contiene ancora il valore di esempio")
 
     carica_dati_puliti()
     stato["testo_prompt"] = PERCORSO_PROMPT.read_text(encoding="utf-8")
@@ -245,14 +260,15 @@ def esegui_analisi(domanda: str, percorso_grafico: Path, callbacks: list | None 
     disegnato in percorso_grafico. Le eccezioni di OpenAI risalgono al chiamante.
     """
     contatore = UsageMetadataCallbackHandler()
+    chiamate = ContaChiamate()
     llm = ChatOpenAI(
-        model=os.getenv("OPENAI_MODEL"),
+        model=modello_data_agent(),
         api_key=_CHIAVE_OPENAI,  # passata esplicitamente: non è in os.environ
         temperature=0,
         max_tokens=MAX_TOKEN_RISPOSTA,
         max_retries=0,  # nessun nuovo tentativo automatico in caso di errore
         timeout=TIMEOUT_CHIAMATA,
-        callbacks=[contatore, *(callbacks or [])],
+        callbacks=[contatore, chiamate, *(callbacks or [])],
     )
     agente = create_pandas_dataframe_agent(
         llm,
@@ -266,6 +282,14 @@ def esegui_analisi(domanda: str, percorso_grafico: Path, callbacks: list | None 
     )
     risultato = agente.invoke({"input": domanda})
     token = sum(uso.get("total_tokens", 0) for uso in contatore.usage_metadata.values())
+
+    # Una riga di log per analisi: modello, chiamate reali e token (input, di cui dalla cache, output).
+    # Serve a misurare costi e chiamate senza cambiare il comportamento.
+    entrata = sum(u.get("input_tokens", 0) for u in contatore.usage_metadata.values())
+    cache = sum((u.get("input_token_details") or {}).get("cache_read", 0) for u in contatore.usage_metadata.values())
+    uscita = sum(u.get("output_tokens", 0) for u in contatore.usage_metadata.values())
+    print(f"[analisi] modello={modello_data_agent()} chiamate={chiamate.chiamate} "
+          f"input={entrata} cache={cache} output={uscita}", flush=True)
 
     # Filtro sulle risposte: si controlla il testo grezzo, blocco del grafico compreso
     testo = str(risultato["output"])
