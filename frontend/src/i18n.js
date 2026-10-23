@@ -79,6 +79,9 @@ const TESTI = {
     erroreTimeout: 'La risposta sta impiegando troppo tempo e ho interrotto la richiesta. Riprova tra poco, magari con una domanda più semplice.',
     erroreServer: 'Si è verificato un problema nel preparare la risposta. Riprova tra poco.',
     eccedenzeEtichetta: 'Eccedenze donate',
+    comeCalcolato: "Come l'ho calcolato",
+    calcoloCodice: 'Codice Python eseguito sui dati del negozio (solo da leggere)',
+    calcoloRegole: 'Regole fisse applicate dal codice, senza modello linguistico',
     eccedenzeValore: '{ieri} kg ieri · {settimana} kg nella settimana dal {dal} al {al}',
   },
 
@@ -158,6 +161,9 @@ const TESTI = {
     errore_azione_sconosciuta: 'This action is not available.',
     errore_scenario_non_valido: 'Invalid demo scenario: choose one from the menu.',
     eccedenzeEtichetta: 'Surplus food donated',
+    comeCalcolato: 'How I calculated it',
+    calcoloCodice: 'Python code run on the store data (read only)',
+    calcoloRegole: 'Fixed rules applied by the code, without a language model (in Italian)',
     eccedenzeValore: '{ieri} kg yesterday · {settimana} kg in the week {dal} – {al}',
   },
 }

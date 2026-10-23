@@ -73,7 +73,7 @@ function etichettaAzione(azione, periodo, lingua) {
 // Risultato vuoto con la stessa forma della risposta di /api/chat
 const nuovoEsito = () => ({
   risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null,
-  riconoscimenti: [], bozza_riconoscimento: null, report: null, eccedenze_donate: null, token: 0,
+  riconoscimenti: [], bozza_riconoscimento: null, report: null, eccedenze_donate: null, calcoli: [], token: 0,
 });
 
 // Aggiunge le sezioni consultate senza doppioni
@@ -169,6 +169,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
     esito.pulizia = dati.pulizia ?? null;
     esito.riconoscimenti = dati.riconoscimenti ?? [];
     esito.eccedenze_donate = dati.eccedenze ?? null;
+    if (dati.calcolo) esito.calcoli.push({ strumento: "prepara_briefing", ...dati.calcolo });
 
     // Una ricerca nel manuale per ogni anomalia, con la sua domanda_procedura (senza doppioni)
     const domande = [...new Set((dati.anomalie ?? []).map((a) => a.domanda_procedura).filter(Boolean))];
@@ -201,6 +202,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
     const periodo = ultimaSettimanaCompleta(scenario.oggi);
     const r = await STRUMENTI.controlla_soglie(periodo, segnale, scenario.id);
     esito.strumenti.push({ nome: "controlla_soglie", domanda: `dal ${periodo.inizio} al ${periodo.fine}` });
+    if (r.calcolo) esito.calcoli.push({ strumento: "controlla_soglie", ...r.calcolo });
 
     const istruzioni =
       `Azione diretta: controllo delle soglie del manuale sulla settimana ${periodoLeggibile(periodo, "it")}. ` +
@@ -219,6 +221,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
     const r = await STRUMENTI.controlla_soglie(periodo, segnale, scenario.id);
     esito.strumenti.push({ nome: "controlla_soglie", domanda: `dal ${periodo.inizio} al ${periodo.fine}` });
     if (!r.dati?.kpi) throw new Error("dati della settimana non disponibili");
+    if (r.calcolo) esito.calcoli.push({ strumento: "controlla_soglie", ...r.calcolo });
 
     // Soglie superate e sezioni del manuale da allegare: il modello di messaggio e le procedure
     const superate = Object.entries(r.dati.superate).filter(([, si]) => si).map(([tipo]) => tipo);

@@ -133,6 +133,9 @@ async function main() {
     verifica(`eccedenze nel briefing: ieri ${kgAttesi[0]} kg, settimana ${kgAttesi[1]} kg`,
       b.eccedenze?.ieri === kgAttesi[0] && b.eccedenze?.settimana === kgAttesi[1]);
     verifica("riga delle eccedenze nel testo per l'LLM", b.testoPerLLM.includes("eccedenze donate (in kg)"));
+    verifica("regole fisse del calcolo in briefing e soglie (Come l'ho calcolato)",
+      b.calcolo?.tipo === "regole" && b.calcolo.testo.includes("senza modello linguistico")
+        && s.calcolo?.tipo === "regole" && s.calcolo.testo.includes("Consegne in ritardo"));
     const kgReport = String(kgAttesi[1]).replace(".", ",");
     verifica(`riga delle eccedenze nei KPI del report (${kgReport} kg)`, s.dati.testoKpi.includes(`eccedenze donate: ${kgReport} kg`));
   }

@@ -4,6 +4,7 @@ import ToolBadges from './ToolBadges.jsx'
 import Riconoscimenti from './Riconoscimenti.jsx'
 import ReportMail from './ReportMail.jsx'
 import Eccedenze from './Eccedenze.jsx'
+import ComeCalcolato from './ComeCalcolato.jsx'
 import { useTesti } from '../i18n.js'
 
 // Il markdown scritto dall'LLM non deve far caricare nulla dall'esterno:
@@ -72,6 +73,7 @@ export default function Message({ messaggio }) {
   const {
     risposta, strumenti = [], grafici = [], sezioni_consultate = [], pulizia,
     riconoscimenti = [], bozza_riconoscimento: bozza = null, report = null, eccedenze_donate: eccedenze = null,
+    calcoli = [],
   } = messaggio.dati
 
   return (
@@ -116,6 +118,9 @@ export default function Message({ messaggio }) {
             </ul>
           </div>
         )}
+
+        {/* "Come l'ho calcolato": pannello richiudibile con codice o regole (solo testo) */}
+        {calcoli.length > 0 && <ComeCalcolato calcoli={calcoli} />}
 
         {pulizia && <p className="nota-pulizia">{pulizia}</p>}
       </article>

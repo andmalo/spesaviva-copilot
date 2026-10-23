@@ -37,7 +37,8 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from briefing import controlla_soglie, kpi_periodo, prepara_briefing, soglie_superate, testo_kpi, testo_soglie
+from briefing import (REGOLE_BRIEFING, REGOLE_SOGLIE, controlla_soglie, kpi_periodo, prepara_briefing,
+                      soglie_superate, testo_kpi, testo_soglie)
 from grafici import disegna_grafico, estrai_blocco_grafico
 from pulizia import pulisci_dati, riepilogo_pulizia
 
@@ -92,6 +93,7 @@ MAX_SECONDI_PER_DOMANDA = 90  # tempo massimo per una singola domanda
 TIMEOUT_CHIAMATA = 60         # tempo massimo per una singola chiamata a OpenAI
 RIGHE_ANTEPRIMA = 3           # righe di esempio del DataFrame incluse nel prompt
 DURATA_GRAFICI_ORE = 24       # i grafici più vecchi si cancellano all'avvio
+MAX_CARATTERI_CODICE = 4000   # codice mostrato in "Come l'ho calcolato": oltre si tronca
 
 MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
         "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
@@ -293,12 +295,33 @@ def messaggio_errore(errore: Exception) -> str:
     return f"Errore interno durante l'analisi ({type(errore).__name__})."
 
 
+def codice_eseguito(passi: list) -> str | None:
+    """Codice Python eseguito dall'agente nei passi intermedi, per "Come l'ho calcolato".
+    Solo il codice (non i risultati), troncato a MAX_CARATTERI_CODICE e passato dal filtro
+    sui dati riservati: se contiene qualcosa di riservato non si mostra nulla."""
+    blocchi = []
+    for azione, _risultato in passi:
+        ingresso = azione.tool_input
+        codice = ingresso.get("query") if isinstance(ingresso, dict) else ingresso
+        if isinstance(codice, str) and codice.strip():
+            blocchi.append(codice.strip())
+    if not blocchi:
+        return None
+    testo = "\n\n# ---\n\n".join(blocchi)
+    if contiene_dati_riservati(testo):
+        logger.warning("Codice dell'analisi non mostrato: conteneva informazioni riservate")
+        return None
+    if len(testo) > MAX_CARATTERI_CODICE:
+        testo = testo[:MAX_CARATTERI_CODICE] + "\n# ... (codice troncato)"
+    return testo
+
+
 def esegui_analisi(domanda: str, percorso_grafico: Path, scenario: dict,
-                   callbacks: list | None = None) -> tuple[str, int]:
+                   callbacks: list | None = None) -> tuple[str, int, str | None]:
     """Fa analizzare la domanda al pandas agent su una copia nuova dei dati.
 
-    Restituisce (testo della risposta, token usati). Il testo è già passato dal filtro
-    sui dati riservati e non contiene più il blocco del grafico, che se valido è stato
+    Restituisce (testo della risposta, token usati, codice eseguito). Il testo è già passato
+    dal filtro sui dati riservati e non contiene più il blocco del grafico, che se valido è stato
     disegnato in percorso_grafico. Le eccezioni di OpenAI risalgono al chiamante.
     """
     contatore = UsageMetadataCallbackHandler()
@@ -321,6 +344,7 @@ def esegui_analisi(domanda: str, percorso_grafico: Path, scenario: dict,
         max_iterations=MAX_PASSI_PER_DOMANDA,
         max_execution_time=MAX_SECONDI_PER_DOMANDA,
         allow_dangerous_code=True,
+        return_intermediate_steps=True,  # per mostrare il codice eseguito
     )
     risultato = agente.invoke({"input": domanda})
     token = sum(uso.get("total_tokens", 0) for uso in contatore.usage_metadata.values())
@@ -337,9 +361,10 @@ def esegui_analisi(domanda: str, percorso_grafico: Path, scenario: dict,
     testo = str(risultato["output"])
     if contiene_dati_riservati(testo):
         logger.warning("Risposta bloccata dal filtro: conteneva informazioni riservate")
-        return MESSAGGIO_BLOCCATO, token
+        return MESSAGGIO_BLOCCATO, token, None
 
-    return grafico_dalla_risposta(testo, percorso_grafico), token
+    codice = codice_eseguito(risultato.get("intermediate_steps") or [])
+    return grafico_dalla_risposta(testo, percorso_grafico), token, codice
 
 
 # ---------------------------------------------------------------------------
@@ -365,7 +390,7 @@ def analizza(richiesta: Domanda, request: Request):
     percorso_grafico = CARTELLA_GRAFICI / nome_grafico
 
     try:
-        risposta, token = esegui_analisi(domanda, percorso_grafico, scenario)
+        risposta, token, codice = esegui_analisi(domanda, percorso_grafico, scenario)
     except Exception as errore:
         logger.error("Analisi non riuscita: %s", type(errore).__name__)
         raise HTTPException(status_code=500, detail=messaggio_errore(errore))
@@ -378,6 +403,7 @@ def analizza(richiesta: Domanda, request: Request):
         "grafico": url_grafico,
         "pulizia": stato["riepilogo_pulizia"],
         "token": token,
+        "codice": codice,  # mostrato come testo, mai eseguito dal front end
     }
 
 
@@ -408,6 +434,7 @@ def briefing(request: Request, richiesta: RichiestaBriefing | None = None):
         "riconoscimenti": risultato["riconoscimenti"],
         "grafico": url_grafico,
         "pulizia": stato["riepilogo_pulizia"],
+        "regole": REGOLE_BRIEFING,
     }
 
 
@@ -445,7 +472,8 @@ def soglie(periodo: Periodo):
 
     testo = testo_soglie(esito) + ("\n" + nota if nota else "")
     # Oltre ai controlli: KPI del periodo e soglie superate (servono al report per l'Area Manager)
-    return {"testo": testo, "esito": esito, "kpi": kpi, "testo_kpi": testo_kpi(kpi), "superate": soglie_superate(esito)}
+    return {"testo": testo, "esito": esito, "kpi": kpi, "testo_kpi": testo_kpi(kpi), "superate": soglie_superate(esito),
+            "regole": REGOLE_SOGLIE}
 
 
 if __name__ == "__main__":

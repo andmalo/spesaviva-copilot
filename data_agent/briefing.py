@@ -66,6 +66,22 @@ GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato",
 # Funzioni di supporto
 # ---------------------------------------------------------------------------
 
+def _regole_soglie() -> list[str]:
+    """Descrizione delle regole dei controlli, scritta dal codice a partire da SOGLIE."""
+    s = SOGLIE
+    return [
+        "Tasso di scarto di un reparto = scarti del reparto / vendite del reparto × 100, giorno per giorno.",
+        *(f"Scarto {r}: soglia {_numero_it(v['soglia'], 1)}%; doppio del valore normale {_numero_it(v['doppio_normale'], 1)}%."
+          for r, v in s["scarti"].items()),
+        f"Azioni obbligatorie: scarto sopra soglia per almeno {s['scarti_giorni_azioni']} giorni consecutivi.",
+        f"Da comunicare all'Area Manager: scarto oltre il doppio del normale in un giorno, oppure sopra soglia "
+        f"per {s['scarti_giorni_area_manager']} giorni consecutivi.",
+        f"Rotture di stock: più di {s['rotture_limite']} referenze in rottura per {s['rotture_giorni']} giorni consecutivi.",
+        f"Consegne in ritardo: {s['consegne_ritardo_settimana']} o più nella stessa settimana (da lunedì a domenica).",
+        f"Assenze: ore di assenza / ore pianificate × 100 oltre il {_numero_it(s['assenze_settimana_pct'], 0)}% nella settimana.",
+    ]
+
+
 def _data_it(giorno: date) -> str:
     """Data per esteso in italiano, es. '31 agosto 2026'."""
     return f"{giorno.day} {MESI[giorno.month - 1]} {giorno.year}"
@@ -652,3 +668,28 @@ def prepara_briefing(df: pd.DataFrame, negozio: str, oggi: date, percorso_grafic
     # Riconoscimenti: sull'ultimo mese completo, separati dalle anomalie
     riconoscimenti = controlla_miglioramenti(df, negozio, ultimo_mese_completo(ieri))
     return {"kpi": kpi, "controlli": controlli, "anomalie": anomalie, "riconoscimenti": riconoscimenti}
+
+
+# ---------------------------------------------------------------------------
+# Regole mostrate in "Come l'ho calcolato" (fisse, scritte qui nel codice: nessun LLM)
+# ---------------------------------------------------------------------------
+
+REGOLE_SOGLIE = "\n".join([
+    "Calcolo deterministico con pandas, senza modello linguistico, sui dati puliti del negozio nel periodo richiesto.",
+    *("- " + r for r in _regole_soglie()),
+    "KPI del periodo: vendite e obiettivo sommati; scostamento = (vendite - obiettivo) / obiettivo × 100; "
+    "scontrino medio = vendite / scontrini; eccedenze donate = somma dei kg.",
+])
+
+REGOLE_BRIEFING = "\n".join([
+    "Calcolo deterministico con pandas, senza modello linguistico, sui dati di ieri e delle settimane precedenti.",
+    "KPI di ieri: scostamento = (vendite - obiettivo) / obiettivo × 100; scontrino medio = vendite / scontrini; "
+    "tasso di assenza = ore di assenza / ore pianificate × 100.",
+    *("- " + r for r in _regole_soglie()),
+    "Le anomalie si segnalano solo se la serie arriva fino a ieri; le settimane controllate sono quella in corso "
+    "e, se ieri era lunedì, anche quella precedente.",
+    "Eccedenze donate: kg di ieri e somma dei kg dell'ultima settimana completa (da lunedì a domenica).",
+    f"Riconoscimenti: tasso di scarto mensile di un reparto almeno il "
+    f"{_numero_it(SOGLIE['miglioramento_riduzione_pct'], 0)}% sotto lo stesso mese dell'anno prima, "
+    f"per {SOGLIE['miglioramento_mesi_consecutivi']} mesi completi consecutivi.",
+])

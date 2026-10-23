@@ -119,3 +119,33 @@ def test_prompt_con_data_e_negozio_dello_scenario():
     assert "marzo 2026, il mese in corso (dati dal 1 al 9 marzo 2026)" in prompt
     prompt = app.costruisci_prompt(app.leggi_scenario("tranquilla"))
     assert "agosto 2026, l'ultimo mese completo nei dati" in prompt
+
+
+# --- "Come l'ho calcolato": codice eseguito dall'agente ---------------------
+
+class _Azione:
+    """Passo intermedio finto, con la stessa forma di quelli del pandas agent."""
+    def __init__(self, codice):
+        self.tool_input = {"query": codice}
+
+
+def test_codice_eseguito_raccoglie_i_passi():
+    passi = [(_Azione("df.shape"), "(4332, 19)"), (_Azione("df['negozio'].unique()"), "...")]
+    codice = app.codice_eseguito(passi)
+    assert codice == "df.shape\n\n# ---\n\ndf['negozio'].unique()"
+    assert "4332" not in codice  # solo il codice, non i risultati
+
+
+def test_codice_eseguito_senza_passi():
+    assert app.codice_eseguito([]) is None
+
+
+def test_codice_eseguito_troncato():
+    codice = app.codice_eseguito([(_Azione("x = 1\n" * 2000), "")])
+    assert len(codice) <= app.MAX_CARATTERI_CODICE + 30
+    assert codice.endswith("# ... (codice troncato)")
+
+
+def test_codice_con_dati_riservati_non_mostrato():
+    chiave_finta = "sk-" + "b" * 24
+    assert app.codice_eseguito([(_Azione(f"chiave = '{chiave_finta}'"), "")]) is None

@@ -22,6 +22,15 @@ const TIMEOUT_BRIEFING_MS = 30_000; // il briefing non usa l'LLM: bastano pochi 
 // Il data agent fa al massimo 5 passi per domanda (MAX_PASSI_PER_DOMANDA in data_agent/app.py):
 // nel conteggio delle chiamate a OpenAI si considera sempre il caso peggiore
 const CHIAMATE_MASSIME_DATA_AGENT = 5;
+// Lunghezza massima del testo di "Come l'ho calcolato" (il data agent tronca già il codice)
+const MAX_CARATTERI_CALCOLO = 5000;
+
+// Come è stato fatto il calcolo: codice eseguito dal data agent oppure regole fisse.
+// Si mostra solo come testo nel front end, mai eseguito.
+function calcolo(tipo, testo) {
+  if (typeof testo !== "string" || !testo.trim()) return null;
+  return { tipo, testo: testo.slice(0, MAX_CARATTERI_CALCOLO) };
+}
 
 // Segnale che scatta per il timeout oppure quando il front end chiude la richiesta
 function segnaleConTimeout(millisecondi, segnaleRichiesta) {
@@ -131,6 +140,7 @@ async function analizza_dati(domanda, segnaleRichiesta, scenario) {
     testoPerLLM: dati.risposta,
     grafico: dati.grafico || null,
     pulizia: dati.pulizia ?? null,
+    calcolo: calcolo("codice", dati.codice),
     chiamateOpenAI: CHIAMATE_MASSIME_DATA_AGENT,
     // Token usati dal data agent: contano nella risposta e nel tetto giornaliero
     token: Number.isFinite(dati.token) ? dati.token : 0,
@@ -280,6 +290,7 @@ async function prepara_briefing(segnaleRichiesta, scenario) {
     anomalie: Array.isArray(dati.anomalie) ? dati.anomalie : [],
     // Eccedenze donate (kg di ieri e dell'ultima settimana completa): riga a parte nel front end
     eccedenze: dati.kpi?.eccedenze_donate_kg ?? null,
+    calcolo: calcolo("regole", dati.regole),
     grafico: dati.grafico || null,
     pulizia: dati.pulizia ?? null,
     chiamateOpenAI: 0, // il briefing è calcolato solo con pandas
@@ -324,6 +335,7 @@ async function controlla_soglie({ inizio, fine }, segnaleRichiesta, scenario) {
   return {
     testoPerLLM: dati.testo,
     chiamateOpenAI: 0, // solo pandas, nessuna chiamata a OpenAI
+    calcolo: calcolo("regole", dati.regole),
     // KPI del periodo e soglie superate: servono all'azione diretta del report per l'Area Manager
     dati: { kpi: dati.kpi, testoKpi: dati.testo_kpi, superate: dati.superate ?? {}, controlli: dati.esito },
   };

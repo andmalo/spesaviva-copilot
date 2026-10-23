@@ -863,6 +863,38 @@ button:disabled {
   font-weight: 600;
 }
 
+/* "Come l'ho calcolato": pulsante e pannello richiudibile */
+.calcolo {
+  margin-top: 12px;
+}
+
+.calcolo__pannello {
+  margin-top: 8px;
+  display: grid;
+  gap: 10px;
+}
+
+.calcolo__voce h4 {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--testo-secondario);
+}
+
+.calcolo__testo {
+  max-height: 320px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio-piccolo);
+  background: var(--sfondo);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 /* Menu dello scenario della demo nell'intestazione */
 .selettore-scenario {
   display: inline-flex;

@@ -311,7 +311,7 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
 
   const esito = {
     risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null,
-    riconoscimenti: [], bozza_riconoscimento: null, eccedenze_donate: null, token: 0,
+    riconoscimenti: [], bozza_riconoscimento: null, eccedenze_donate: null, calcoli: [], token: 0,
   };
 
   // Se il front end ha chiuso la richiesta non si fanno altre chiamate
@@ -458,6 +458,8 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
           if (risultato.grafico) esito.grafici.push(risultato.grafico);
           if (risultato.riconoscimenti?.length) esito.riconoscimenti.push(...risultato.riconoscimenti);
           if (risultato.eccedenze) esito.eccedenze_donate = risultato.eccedenze;
+          // "Come l'ho calcolato": codice del data agent o regole fisse degli strumenti deterministici
+          if (risultato.calcolo) esito.calcoli.push({ strumento: nome, ...risultato.calcolo });
           if (risultato.pulizia) esito.pulizia = risultato.pulizia;
         }
       }
