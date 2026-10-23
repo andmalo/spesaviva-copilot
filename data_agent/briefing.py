@@ -252,6 +252,58 @@ def testo_soglie(esito: dict) -> str:
     return "\n".join(righe)
 
 
+def soglie_superate(esito: dict) -> dict:
+    """Quali soglie del manuale risultano superate nel periodo (vero/falso per tipo di controllo)."""
+    s = SOGLIE
+    return {
+        "scarti": any(e["giorni"] >= s["scarti_giorni_azioni"] for ep in esito["scarti"].values() for e in ep),
+        "scarti_area_manager": any(e["giorni"] >= s["scarti_giorni_area_manager"] for ep in esito["scarti"].values() for e in ep)
+                               or any(esito["scarti_oltre_doppio"].values()),
+        "rotture": bool(esito["rotture"]),
+        "consegne": any(w["consegne_in_ritardo"] >= s["consegne_ritardo_settimana"] for w in esito["settimane"]),
+        "assenze": any(w["tasso_assenze"] is not None and w["tasso_assenze"] > s["assenze_settimana_pct"]
+                       for w in esito["settimane"]),
+    }
+
+
+def kpi_periodo(df: pd.DataFrame, negozio: str, inizio: date, fine: date) -> dict:
+    """KPI del negozio nel periodo, tutti calcolati dal codice (rapporti dei totali)."""
+    righe = df[(df["negozio"] == negozio) & (df["data"].dt.date >= inizio) & (df["data"].dt.date <= fine)]
+    if righe.empty:
+        raise ValueError(f"Nessun dato per il negozio {negozio} {_periodo_it(inizio, fine)}.")
+    vendite, obiettivo = float(righe["vendite_totali"].sum()), float(righe["obiettivo_vendite"].sum())
+    scontrini = float(righe["numero_scontrini"].sum())
+    return {
+        "negozio": negozio,
+        "inizio": inizio,
+        "fine": fine,
+        "giorni_con_dati": int(righe["data"].dt.date.nunique()),
+        "vendite": round(vendite, 2),
+        "obiettivo": round(obiettivo, 2),
+        "scostamento_pct": round((vendite - obiettivo) / obiettivo * 100, 2),
+        "scontrini": int(scontrini),
+        "scontrino_medio": round(vendite / scontrini, 2),
+        "tasso_scarto": {r: round(float(righe[f"scarti_{r}"].sum() / righe[f"vendite_{r}"].sum() * 100), 2) for r in REPARTI},
+    }
+
+
+def testo_kpi(kpi: dict) -> str:
+    """Testo compatto dei KPI del periodo, per l'LLM."""
+    scarti = ", ".join(f"{r} {_numero_it(v)}% (soglia {_numero_it(SOGLIE['scarti'][r]['soglia'], 1)}%)"
+                       for r, v in kpi["tasso_scarto"].items())
+    # Separatori italiani: punto per le migliaia, virgola per i decimali
+    euro = lambda n: f"{n:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".") + " €"
+    intero = lambda n: f"{n:,}".replace(",", ".")
+    righe = [
+        f"KPI del negozio {kpi['negozio']}, {_periodo_it(kpi['inizio'], kpi['fine'])} ({kpi['giorni_con_dati']} giorni con dati):",
+        f"- vendite {euro(kpi['vendite'])} contro un obiettivo di {euro(kpi['obiettivo'])} "
+        f"(scostamento {_numero_it(kpi['scostamento_pct'])}%)",
+        f"- scontrini {intero(kpi['scontrini'])}, scontrino medio {euro(kpi['scontrino_medio'])}",
+        f"- tasso di scarto per reparto: {scarti}",
+    ]
+    return "\n".join(righe)
+
+
 def _anomalie_del_briefing(esito: dict, ieri: date) -> list[dict]:
     """Anomalie del briefing, con le stesse frasi di sempre, a partire dai controlli di controlla_soglie."""
     anomalie = []

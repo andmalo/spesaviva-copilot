@@ -266,6 +266,8 @@ async function prepara_briefing(segnaleRichiesta) {
     testoPerLLM: testoBriefing(dati),
     // I riconoscimenti vanno anche al front end, già calcolati (non scritti dall'LLM)
     riconoscimenti: Array.isArray(dati.riconoscimenti) ? dati.riconoscimenti : [],
+    // Anomalie complete (con domanda_procedura): servono all'azione diretta del briefing
+    anomalie: Array.isArray(dati.anomalie) ? dati.anomalie : [],
     grafico: dati.grafico || null,
     pulizia: dati.pulizia ?? null,
     chiamateOpenAI: 0, // il briefing è calcolato solo con pandas
@@ -307,7 +309,12 @@ async function controlla_soglie({ inizio, fine }, segnaleRichiesta) {
   }
 
   const dati = await risposta.json();
-  return { testoPerLLM: dati.testo, chiamateOpenAI: 0 }; // solo pandas, nessuna chiamata a OpenAI
+  return {
+    testoPerLLM: dati.testo,
+    chiamateOpenAI: 0, // solo pandas, nessuna chiamata a OpenAI
+    // KPI del periodo e soglie superate: servono all'azione diretta del report per l'Area Manager
+    dati: { kpi: dati.kpi, testoKpi: dati.testo_kpi, superate: dati.superate ?? {}, controlli: dati.esito },
+  };
 }
 
 // Mappa nome dello strumento -> funzione, usata dal ciclo di function calling

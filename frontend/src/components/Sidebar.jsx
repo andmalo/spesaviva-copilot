@@ -1,45 +1,62 @@
-// Barra laterale: logo, dati del negozio, briefing e domande rapide.
-import { CONFIG, DOMANDA_BRIEFING, DOMANDE_RAPIDE } from '../config.js'
+// Barra laterale: logo, dati del negozio, pulsanti delle azioni dirette e domande rapide.
+import { AZIONI } from '../config.js'
+import { useTesti } from '../i18n.js'
 
 // Classe CSS dell'etichetta per ogni tipo di domanda rapida
 const CLASSE_TIPO = { RAG: 'etichetta--manuale', DATI: 'etichetta--dati', FUORI: 'etichetta--fuori' }
 
-export default function Sidebar({ onDomanda, inAttesa }) {
+export default function Sidebar({ onDomanda, onAzione, inAttesa }) {
+  const { t } = useTesti()
+  const tipi = t('tipoDomanda')
+
   return (
     <aside className="sidebar">
       <div className="logo">
         <span className="logo__marchio" aria-hidden="true">SV</span>
         <div>
           <div className="logo__nome">SpesaViva</div>
-          <div className="logo__sottotitolo">Store Manager Copilot</div>
+          <div className="logo__sottotitolo">{t('sottotitolo')}</div>
         </div>
       </div>
 
-      <section className="negozio" aria-label="Negozio">
-        <div className="negozio__nome">{CONFIG.negozio}</div>
+      <section className="negozio" aria-label={t('negozioAria')}>
+        <div className="negozio__nome">{t('negozio')}</div>
         <dl className="negozio__dettagli">
           <div>
-            <dt>Capo negozio</dt>
-            <dd>{CONFIG.capoNegozio}</dd>
+            <dt>{t('capoNegozioEtichetta')}</dt>
+            <dd>{t('capoNegozio')}</dd>
           </div>
           <div>
-            <dt>Dati aggiornati al</dt>
-            <dd className="mono">{CONFIG.dataDati}</dd>
+            <dt>{t('datiAggiornatiEtichetta')}</dt>
+            <dd className="mono">{t('dataDati')}</dd>
           </div>
         </dl>
       </section>
 
-      <button type="button" className="pulsante pulsante--principale" onClick={() => onDomanda(DOMANDA_BRIEFING)} disabled={inAttesa}>
-        Briefing del mattino
-      </button>
+      {/* Azioni dirette: gli strumenti li chiama il codice, senza passare dalla scelta dell'LLM */}
+      <section className="azioni" aria-labelledby="titolo-azioni">
+        <h2 id="titolo-azioni" className="sidebar__titolo">{t('azioniTitolo')}</h2>
+        {AZIONI.map((azione, i) => (
+          <button
+            key={azione}
+            type="button"
+            className={`pulsante ${i === 0 ? 'pulsante--principale' : 'pulsante--azione'}`}
+            onClick={() => onAzione(azione)}
+            disabled={inAttesa}
+          >
+            {t(`azione_${azione}`)}
+          </button>
+        ))}
+      </section>
 
+      {/* Domande rapide: passano dalla chat, come una domanda scritta */}
       <section className="domande-rapide" aria-labelledby="titolo-domande-rapide">
-        <h2 id="titolo-domande-rapide" className="sidebar__titolo">Domande rapide</h2>
+        <h2 id="titolo-domande-rapide" className="sidebar__titolo">{t('domandeRapideTitolo')}</h2>
         <ul>
-          {DOMANDE_RAPIDE.map((domanda) => (
+          {t('domandeRapide').map((domanda) => (
             <li key={domanda.testo}>
               <button type="button" className="domanda-rapida" onClick={() => onDomanda(domanda.testo)} disabled={inAttesa}>
-                <span className={`etichetta ${CLASSE_TIPO[domanda.tipo]}`}>{domanda.tipo}</span>
+                <span className={`etichetta ${CLASSE_TIPO[domanda.tipo]}`}>{tipi[domanda.tipo]}</span>
                 <span>{domanda.testo}</span>
               </button>
             </li>

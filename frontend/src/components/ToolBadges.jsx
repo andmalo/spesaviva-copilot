@@ -1,27 +1,29 @@
 // Badge degli strumenti usati dall'assistente, numerati nell'ordine di chiamata.
+import { useTesti } from '../i18n.js'
 
-// Etichetta e stile per ogni strumento del back end
-const STRUMENTI = {
-  analizza_dati: { etichetta: 'Dati del negozio', classe: 'badge--dati' },
-  cerca_procedure: { etichetta: 'Manuale operativo', classe: 'badge--manuale' },
-  prepara_briefing: { etichetta: 'Briefing', classe: 'badge--dati' },
-  controlla_soglie: { etichetta: 'Soglie del manuale', classe: 'badge--dati' },
+// Stile per ogni strumento del back end (le etichette sono in i18n.js)
+const CLASSI = {
+  analizza_dati: 'badge--dati',
+  cerca_procedure: 'badge--manuale',
+  prepara_briefing: 'badge--dati',
+  controlla_soglie: 'badge--dati',
 }
 
 export default function ToolBadges({ strumenti }) {
+  const { t } = useTesti()
   if (strumenti.length === 0) {
-    return <p className="badge-nessuno">Nessuno strumento usato</p>
+    return <p className="badge-nessuno">{t('nessunoStrumento')}</p>
   }
 
   return (
-    <ol className="badge-strumenti" aria-label="Strumenti usati">
+    <ol className="badge-strumenti" aria-label={t('strumentiAria')}>
       {strumenti.map((strumento, i) => {
-        const info = STRUMENTI[strumento.nome] ?? { etichetta: 'Strumento', classe: '' }
+        const conosciuto = Object.hasOwn(CLASSI, strumento.nome)
         return (
-          <li key={i} className={`badge ${info.classe}`}>
+          <li key={i} className={`badge ${CLASSI[strumento.nome] ?? ''}`}>
             <div className="badge__riga">
               <span className="badge__numero">{i + 1}</span>
-              <span className="badge__etichetta">{info.etichetta}</span>
+              <span className="badge__etichetta">{conosciuto ? t(`strumento_${strumento.nome}`) : t('strumentoGenerico')}</span>
               <code className="badge__nome">{strumento.nome}</code>
             </div>
             {/* prepara_briefing non riceve una domanda: in quel caso non si mostra nulla */}

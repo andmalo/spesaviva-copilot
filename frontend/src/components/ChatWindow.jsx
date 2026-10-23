@@ -1,11 +1,12 @@
-// Area della chat: intestazione, benvenuto, messaggi, indicatore di attesa e campo di testo.
+// Area della chat: intestazione con lingua, benvenuto, messaggi, indicatore di attesa e campo di testo.
 import { useEffect, useRef } from 'react'
 import Message from './Message.jsx'
 import TypingIndicator from './TypingIndicator.jsx'
 import Composer from './Composer.jsx'
-import { CONFIG } from '../config.js'
+import { LINGUE, useTesti } from '../i18n.js'
 
 export default function ChatWindow({ messaggi, inAttesa, onInvia, onNuovaConversazione }) {
+  const { lingua, setLingua, t } = useTesti()
   const fineMessaggi = useRef(null)
 
   // Scorrimento automatico all'ultimo messaggio (o all'indicatore di attesa)
@@ -17,16 +18,30 @@ export default function ChatWindow({ messaggi, inAttesa, onInvia, onNuovaConvers
     <main className="chat">
       <header className="chat__intestazione">
         <div>
-          <h1 className="chat__titolo">Conversazione</h1>
-          <p className="chat__data">{CONFIG.dataOggi}</p>
+          <h1 className="chat__titolo">{t('conversazione')}</h1>
+          <p className="chat__data">{t('dataOggi')}</p>
         </div>
         <div className="chat__azioni">
-          <ul className="legenda" aria-label="Legenda delle fonti">
-            <li><span className="badge-legenda badge-legenda--manuale">Manuale (RAG)</span></li>
-            <li><span className="badge-legenda badge-legenda--dati">Dati del negozio</span></li>
+          <ul className="legenda" aria-label={t('legendaAria')}>
+            <li><span className="badge-legenda badge-legenda--manuale">{t('legendaManuale')}</span></li>
+            <li><span className="badge-legenda badge-legenda--dati">{t('legendaDati')}</span></li>
           </ul>
+          {/* Selettore della lingua: IT / EN */}
+          <div className="selettore-lingua" role="group" aria-label={t('linguaAria')}>
+            {LINGUE.map((codice) => (
+              <button
+                key={codice}
+                type="button"
+                className={`selettore-lingua__voce${codice === lingua ? ' selettore-lingua__voce--attiva' : ''}`}
+                aria-pressed={codice === lingua}
+                onClick={() => setLingua(codice)}
+              >
+                {codice.toUpperCase()}
+              </button>
+            ))}
+          </div>
           <button type="button" className="pulsante pulsante--secondario pulsante--compatto" onClick={onNuovaConversazione}>
-            Nuova conversazione
+            {t('nuovaConversazione')}
           </button>
         </div>
       </header>
@@ -36,9 +51,8 @@ export default function ChatWindow({ messaggi, inAttesa, onInvia, onNuovaConvers
         <Message
           messaggio={{
             ruolo: 'benvenuto',
-            testo: `Buongiorno ${CONFIG.nomeUtente}, dimmi pure di cosa hai bisogno.`,
-            sottotesto:
-              'Posso analizzare i dati del negozio o cercare nel manuale operativo SpesaViva. Per partire, prova il briefing del mattino.',
+            testo: t('benvenutoTitolo', { nome: t('nomeUtente') }),
+            sottotesto: t('benvenutoTesto'),
           }}
         />
 

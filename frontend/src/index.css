@@ -819,3 +819,124 @@ button:disabled {
   white-space: pre-wrap;
   font-size: 14px;
 }
+
+/* Pulsanti delle azioni dirette nella barra laterale */
+.azioni {
+  display: grid;
+  gap: 8px;
+}
+
+.azioni .sidebar__titolo {
+  margin-bottom: 0;
+}
+
+.pulsante--azione {
+  background: var(--superficie);
+  color: var(--verde);
+  border: 1px solid var(--verde);
+}
+
+.pulsante--azione:hover:not(:disabled) {
+  background: var(--dati-sfondo);
+}
+
+/* Selettore della lingua (IT / EN) nell'intestazione */
+.selettore-lingua {
+  display: inline-flex;
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio-piccolo);
+  overflow: hidden;
+}
+
+.selettore-lingua__voce {
+  padding: 5px 10px;
+  border: none;
+  background: var(--superficie);
+  color: var(--testo-secondario);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.selettore-lingua__voce + .selettore-lingua__voce {
+  border-left: 1px solid var(--bordo);
+}
+
+.selettore-lingua__voce--attiva {
+  background: var(--verde);
+  color: #ffffff;
+}
+
+/* Report per l'Area Manager: riquadro con lo stile di una mail */
+.report-mail {
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  background: var(--superficie);
+  overflow: hidden;
+}
+
+.report-mail__barra {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--manuale-sfondo);
+  color: var(--manuale-testo);
+}
+
+.report-mail__titolo {
+  font-family: var(--font-titoli);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.report-mail__copia {
+  padding: 4px 12px;
+  border: 1px solid var(--manuale-testo);
+  border-radius: var(--raggio-piccolo);
+  background: var(--superficie);
+  color: var(--manuale-testo);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.report-mail__intestazione {
+  margin: 0;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--bordo);
+  display: grid;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.report-mail__intestazione > div {
+  display: flex;
+  gap: 8px;
+}
+
+.report-mail__intestazione dt {
+  min-width: 64px;
+  color: var(--testo-secondario);
+}
+
+.report-mail__intestazione dd {
+  margin: 0;
+}
+
+.report-mail__oggetto {
+  font-weight: 600;
+}
+
+.report-mail__corpo {
+  padding: 12px;
+  white-space: pre-wrap;
+  font-size: 14px;
+}
+
+.report-mail__nota {
+  padding: 0 12px 10px;
+  font-size: 12px;
+  color: var(--testo-secondario);
+}

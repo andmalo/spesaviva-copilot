@@ -2,6 +2,8 @@
 import ReactMarkdown from 'react-markdown'
 import ToolBadges from './ToolBadges.jsx'
 import Riconoscimenti from './Riconoscimenti.jsx'
+import ReportMail from './ReportMail.jsx'
+import { useTesti } from '../i18n.js'
 
 // Il markdown scritto dall'LLM non deve far caricare nulla dall'esterno:
 // - i link restano semplice testo (niente indirizzo cliccabile);
@@ -13,15 +15,6 @@ const COMPONENTI_MARKDOWN = {
   img: ({ alt }) => (alt ? <span className="immagine-rimossa">[{alt}]</span> : null),
 }
 
-// Testo alternativo dei grafici: se c'è un grafico per ogni analisi, uso la domanda dell'analisi
-function testoAlternativo(strumenti, grafici, indice) {
-  const analisi = strumenti.filter((s) => s.nome === 'analizza_dati')
-  if (analisi.length === grafici.length) {
-    return `Grafico generato dall'analisi dei dati del negozio: ${analisi[indice].domanda}`
-  }
-  return `Grafico ${indice + 1} generato dall'analisi dei dati del negozio`
-}
-
 function Avatar({ avviso = false }) {
   return (
     <span className={`avatar${avviso ? ' avatar--avviso' : ''}`} aria-hidden="true">
@@ -31,6 +24,15 @@ function Avatar({ avviso = false }) {
 }
 
 export default function Message({ messaggio }) {
+  const { t } = useTesti()
+
+  // Testo alternativo dei grafici: se c'è un grafico per ogni analisi, uso la domanda dell'analisi
+  function testoAlternativo(strumenti, grafici, indice) {
+    const analisi = strumenti.filter((s) => s.nome === 'analizza_dati')
+    if (analisi.length === grafici.length) return t('graficoAnalisi', { domanda: analisi[indice].domanda })
+    return t('graficoNumero', { n: indice + 1 })
+  }
+
   // Messaggio dell'utente: bolla verde a destra
   if (messaggio.ruolo === 'utente') {
     return (
@@ -65,10 +67,10 @@ export default function Message({ messaggio }) {
     )
   }
 
-  // Risposta dell'assistente con strumenti, testo, grafici, sezioni e nota sulla pulizia
+  // Risposta dell'assistente con strumenti, testo, report, riconoscimenti, grafici, sezioni e pulizia
   const {
     risposta, strumenti = [], grafici = [], sezioni_consultate = [], pulizia,
-    riconoscimenti = [], bozza_riconoscimento: bozza = null,
+    riconoscimenti = [], bozza_riconoscimento: bozza = null, report = null,
   } = messaggio.dati
 
   return (
@@ -84,6 +86,9 @@ export default function Message({ messaggio }) {
           </ReactMarkdown>
         </div>
 
+        {/* Report per l'Area Manager: riquadro in stile mail, sempre in italiano */}
+        {report && <ReportMail report={report} />}
+
         {/* Riconoscimenti del briefing, se presenti: riquadro verde chiaro, separato dalle anomalie */}
         {riconoscimenti.length > 0 && <Riconoscimenti riconoscimenti={riconoscimenti} bozza={bozza} />}
 
@@ -97,7 +102,7 @@ export default function Message({ messaggio }) {
 
         {sezioni_consultate.length > 0 && (
           <div className="sezioni">
-            <h3 className="sezioni__titolo">Sezioni consultate</h3>
+            <h3 className="sezioni__titolo">{t('sezioniConsultate')}</h3>
             <ul className="sezioni__elenco">
               {sezioni_consultate.map((s) => (
                 <li key={`${s.file}|${s.sezione}`} className="etichetta-sezione" title={s.file}>

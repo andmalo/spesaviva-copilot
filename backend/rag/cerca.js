@@ -39,4 +39,22 @@ async function cercaProcedure(domanda, k = 3) {
   }));
 }
 
-module.exports = { cercaProcedure };
+/**
+ * Recupera le sezioni con questi titoli esatti, filtrando sui metadati (non per somiglianza):
+ * serve quando si sa già quale sezione del manuale usare, come il modello di messaggio.
+ * Non calcola embedding, quindi non fa chiamate a OpenAI.
+ * @param {string[]} titoli - titoli delle sezioni ("##" del manuale)
+ * @returns {Promise<Array<{testo: string, metadati: object}>>} nello stesso ordine dei titoli
+ */
+async function sezioniPerTitolo(titoli) {
+  if (titoli.length === 0) return [];
+  const collezione = await apriCollezione();
+  const risultati = await collezione.get({
+    where: { sezione: { $in: titoli } },
+    include: ["documents", "metadatas"],
+  });
+  const sezioni = risultati.documents.map((testo, i) => ({ testo, metadati: risultati.metadatas[i] }));
+  return titoli.map((t) => sezioni.find((s) => s.metadati.sezione === t)).filter(Boolean);
+}
+
+module.exports = { cercaProcedure, sezioniPerTitolo };

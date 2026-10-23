@@ -37,7 +37,7 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from briefing import controlla_soglie, prepara_briefing, testo_soglie
+from briefing import controlla_soglie, kpi_periodo, prepara_briefing, soglie_superate, testo_kpi, testo_soglie
 from grafici import disegna_grafico, estrai_blocco_grafico
 from pulizia import pulisci_dati, riepilogo_pulizia
 
@@ -388,13 +388,19 @@ def soglie(periodo: Periodo):
         raise HTTPException(status_code=400, detail=f"Periodo troppo lungo: al massimo {MAX_GIORNI_PERIODO} giorni.")
 
     try:
-        esito = controlla_soglie(nuova_copia_dati(), os.getenv("NEGOZIO_UTENTE"), inizio, fine)
+        dati = nuova_copia_dati()
+        esito = controlla_soglie(dati, os.getenv("NEGOZIO_UTENTE"), inizio, fine)
+        kpi = kpi_periodo(dati, os.getenv("NEGOZIO_UTENTE"), inizio, fine)
+    except ValueError as errore:
+        # Messaggio scritto da noi in italiano (es. nessun dato nel periodo): si può mostrare
+        raise HTTPException(status_code=404, detail=str(errore))
     except Exception as errore:
         logger.error("Controllo delle soglie non riuscito: %s", type(errore).__name__)
         raise HTTPException(status_code=500, detail=f"Errore interno nel controllo delle soglie ({type(errore).__name__}).")
 
     testo = testo_soglie(esito) + ("\n" + nota if nota else "")
-    return {"testo": testo, "esito": esito}
+    # Oltre ai controlli: KPI del periodo e soglie superate (servono al report per l'Area Manager)
+    return {"testo": testo, "esito": esito, "kpi": kpi, "testo_kpi": testo_kpi(kpi), "superate": soglie_superate(esito)}
 
 
 if __name__ == "__main__":

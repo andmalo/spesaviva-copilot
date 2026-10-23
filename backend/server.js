@@ -18,6 +18,8 @@ const {
   STRUMENTI, STRUMENTI_SENZA_PARAMETRI, STRUMENTI_CON_PERIODO, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent,
 } = require("./strumenti");
 const { creaClient } = require("./rag/config");
+const { separaBozza, separaFonti, togliDomandaFinale, aggiungiFonteUfficiale } = require("./testo_risposte");
+const { AZIONI, creaAzioni } = require("./azioni");
 
 // ---------------------------------------------------------------------------
 // Configurazione
@@ -132,7 +134,7 @@ function aggiungiTokenOggi(token) {
 // Blocca la richiesta se il tetto di token di oggi è già stato raggiunto
 function controllaTettoGiornaliero() {
   if (tokenUsatiOggi() >= TETTO_TOKEN_GIORNALIERO) {
-    throw new ErroreUtente(429, "È stato raggiunto il limite di utilizzo giornaliero dell'assistente. Riprova domani.");
+    throw new ErroreUtente(429, "È stato raggiunto il limite di utilizzo giornaliero dell'assistente. Riprova domani.", "tetto_giornaliero");
   }
 }
 
@@ -162,12 +164,31 @@ function salvaSessione(sessionId, messaggi) {
 // Errore lanciato quando il front end chiude la richiesta prima della risposta
 class RichiestaAnnullata extends Error {}
 
-// Errore con un messaggio fisso in italiano, che si può mostrare al front end
+// Errore con un messaggio fisso in italiano, che si può mostrare al front end.
+// Il codice (facoltativo) permette al front end di mostrare il messaggio nella lingua scelta.
 class ErroreUtente extends Error {
-  constructor(stato, messaggio) {
+  constructor(stato, messaggio, codice = null) {
     super(messaggio);
     this.stato = stato;
+    this.codice = codice;
   }
+}
+
+// Lingue supportate: italiano (predefinita) e inglese
+const LINGUE = { it: "italiano", en: "inglese" };
+function leggiLingua(valore) {
+  return Object.hasOwn(LINGUE, valore) ? valore : "it";
+}
+
+// Messaggi per il modello: prompt di sistema (sempre uguale, così resta nella cache di OpenAI),
+// memoria della sessione, lingua della risposta e infine il messaggio o le istruzioni dell'azione
+function componiMessaggi(storico, lingua, contenuto) {
+  return [
+    { role: "system", content: PROMPT_SISTEMA },
+    ...storico.slice(-MESSAGGI_IN_MEMORIA),
+    { role: "system", content: `Lingua della risposta: ${LINGUE[lingua]}.` },
+    { role: "user", content: contenuto },
+  ];
 }
 
 // Traduce gli errori di OpenAI in messaggi fissi: il testo originale non va mai al front end
@@ -196,48 +217,6 @@ function prenotaChiamate(n) {
   if (chiamateOpenAIUsate + n > MAX_CHIAMATE_OPENAI) return false;
   chiamateOpenAIUsate += n;
   return true;
-}
-
-// Toglie dalla risposta la bozza del messaggio di riconoscimento, scritta tra [BOZZA] e [/BOZZA].
-// Restituisce { testo, bozza }: la bozza va nel riquadro "Riconoscimenti" del front end.
-function separaBozza(testo) {
-  const trovata = testo.match(/\[BOZZA\]([\s\S]*?)(?:\[\/BOZZA\]|$)/i);
-  if (!trovata) return { testo, bozza: null };
-  const bozza = trovata[1].trim();
-  const resto = (testo.slice(0, trovata.index) + testo.slice(trovata.index + trovata[0].length)).trim();
-  return { testo: resto, bozza: bozza || null };
-}
-
-// Toglie dalla risposta l'elenco delle sezioni usate, scritto tra [FONTI] e [/FONTI].
-// Restituisce { testo, titoli }: titoli è null se il blocco manca.
-function separaFonti(testo) {
-  const trovata = testo.match(/\[FONTI\]([\s\S]*?)(?:\[\/FONTI\]|$)/i);
-  if (!trovata) return { testo, titoli: null };
-  const titoli = trovata[1].split(/[;\n]/).map((t) => t.replace(/^[-*•\s"]+|["\s.]+$/g, "").trim()).filter(Boolean);
-  const resto = (testo.slice(0, trovata.index) + testo.slice(trovata.index + trovata[0].length)).trim();
-  return { testo: resto, titoli };
-}
-
-// Toglie l'ultima frase se offre altro: "Vuoi che…?", "Posso…?", "Se vuoi, posso…",
-// "Ti posso aiutare… se vuoi." Le domande di chiarimento vere restano: di solito non iniziano così,
-// e una frase normale che inizia con "Posso" senza essere un'offerta non viene toccata.
-const INIZI_OFFERTA = /^(vuoi|desideri|preferisci|posso|potrei|ti posso|ti serve|ti interessa|hai bisogno|serve altro|fammi sapere)\b/i;
-const INIZI_SE_VUOI = /^se (lo )?(vuoi|desideri|preferisci|ti serve|ti interessa)\b/i;
-function eOfferta(frase) {
-  if (frase.endsWith("?") && INIZI_OFFERTA.test(frase)) return true;
-  if (INIZI_SE_VUOI.test(frase)) return true;
-  return /^(ti posso|posso|potrei)\b/i.test(frase) && /\bse (lo )?(vuoi|desideri|preferisci)\b/i.test(frase);
-}
-function togliDomandaFinale(testo) {
-  // Si lavora sull'ultimo paragrafo, così elenchi e a capo restano intatti
-  const paragrafi = testo.trim().split(/\n/);
-  const frasi = paragrafi[paragrafi.length - 1].split(/(?<=[.!?])\s+/);
-  const ultima = frasi[frasi.length - 1].trim();
-  if (!eOfferta(ultima)) return testo.trim();
-  frasi.pop();
-  if (frasi.length > 0) paragrafi[paragrafi.length - 1] = frasi.join(" ");
-  else paragrafi.pop(); // l'offerta era un paragrafo a sé
-  return paragrafi.join("\n").trim() || testo.trim();
 }
 
 // Vero se il testo contiene cifre in euro o in percentuale (es. "98.765 euro", "4,2%")
@@ -272,19 +251,53 @@ function leggiPeriodo(argomentiJson) {
 // Ciclo di function calling
 // ---------------------------------------------------------------------------
 
+// Controlla il sessionId inviato dal front end
+function controllaSessione(sessionId) {
+  if (typeof sessionId !== "string" || !sessionId.trim() || sessionId.length > 100) {
+    throw new ErroreUtente(400, "Sessione non valida.", "sessione_non_valida");
+  }
+}
+
+/**
+ * Una chiamata al modello senza strumenti, per le azioni dirette: stessi controlli della chat
+ * (annullamento, tetto giornaliero, tetto di chiamate, errori tradotti, token conteggiati).
+ * @returns {Promise<{testo: string, token: number}>}
+ */
+async function chiamaModello(messaggi, segnale) {
+  if (segnale.aborted) throw new RichiestaAnnullata();
+  controllaTettoGiornaliero();
+  if (!prenotaChiamate(1)) {
+    throw new ErroreUtente(429, "È stato raggiunto il numero massimo di chiamate al servizio di intelligenza artificiale.");
+  }
+  let completamento;
+  try {
+    completamento = await openai.chat.completions.create(
+      { model: MODELLO, messages: messaggi, temperature: 0, max_completion_tokens: MAX_TOKEN_RISPOSTA },
+      { signal: segnale }
+    );
+  } catch (errore) {
+    if (segnale.aborted) throw new RichiestaAnnullata();
+    console.error(`[openai] chiamata non riuscita (${errore.constructor.name})`);
+    throw erroreOpenAI(errore);
+  }
+  const token = completamento.usage?.total_tokens ?? 0;
+  aggiungiTokenOggi(token);
+  // Una riga di log con i token (input, di cui dalla cache, output): serve a stimare i costi
+  const uso = completamento.usage ?? {};
+  console.log(`[openai] input=${uso.prompt_tokens ?? 0} cache=${uso.prompt_tokens_details?.cached_tokens ?? 0} output=${uso.completion_tokens ?? 0}`);
+  return { testo: completamento.choices[0].message.content?.trim() ?? "", token };
+}
+
 /**
  * Fa rispondere l'LLM al messaggio, eseguendo gli strumenti che sceglie.
  * @param {Array} storico - messaggi precedenti della sessione
  * @param {string} messaggio - nuovo messaggio dell'utente
  * @param {AbortSignal} segnale - si attiva se il front end chiude la richiesta
+ * @param {string} lingua - "it" oppure "en"
  */
-async function rispondi(storico, messaggio, segnale) {
-  // Messaggi mandati al modello: sistema + ultimi messaggi della sessione + nuovo messaggio
-  const messaggi = [
-    { role: "system", content: PROMPT_SISTEMA },
-    ...storico.slice(-MESSAGGI_IN_MEMORIA),
-    { role: "user", content: messaggio },
-  ];
+async function rispondi(storico, messaggio, segnale, lingua = "it") {
+  // Messaggi mandati al modello: sistema + ultimi messaggi della sessione + lingua + nuovo messaggio
+  const messaggi = componiMessaggi(storico, lingua, messaggio);
 
   const esito = {
     risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null,
@@ -379,6 +392,8 @@ async function rispondi(storico, messaggio, segnale) {
       }
       // Niente domanda finale che offre altro (regola del prompt che il modello a volte ignora)
       esito.risposta = togliDomandaFinale(esito.risposta);
+      // In inglese, la fonte ufficiale (manuale in italiano) la aggiunge il codice
+      esito.risposta = aggiungiFonteUfficiale(esito.risposta, lingua, esito.sezioni_consultate);
       return esito;
     }
 
@@ -449,6 +464,9 @@ async function rispondi(storico, messaggio, segnale) {
 // Server Express
 // ---------------------------------------------------------------------------
 
+// Azioni dirette dei pulsanti (briefing, soglie, report), con gli stessi servizi della chat
+const azioni = creaAzioni({ chiamaModello, componiMessaggi, dataRiferimento: process.env.DATA_RIFERIMENTO });
+
 const app = express();
 
 // CORS abilitato solo per il front end React
@@ -461,7 +479,7 @@ const limiteFrequenza = rateLimit({
   limit: LIMITE_RICHIESTE_MINUTO,
   standardHeaders: "draft-8",
   legacyHeaders: false,
-  message: { errore: "Troppe richieste in poco tempo: aspetta un minuto e riprova." },
+  message: { errore: "Troppe richieste in poco tempo: aspetta un minuto e riprova.", codice: "troppe_richieste" },
 });
 
 // Domanda dell'utente: {"sessionId": "...", "messaggio": "..."}
@@ -477,24 +495,23 @@ app.post("/api/chat", limiteFrequenza, async (req, res, next) => {
 
   try {
     const { sessionId, messaggio } = req.body ?? {};
+    const lingua = leggiLingua(req.body?.lingua);
 
-    if (typeof sessionId !== "string" || !sessionId.trim() || sessionId.length > 100) {
-      throw new ErroreUtente(400, "Sessione non valida.");
-    }
+    controllaSessione(sessionId);
     if (typeof messaggio !== "string") {
-      throw new ErroreUtente(400, "Il messaggio deve essere un testo.");
+      throw new ErroreUtente(400, "Il messaggio deve essere un testo.", "messaggio_non_valido");
     }
     if (!messaggio.trim()) {
-      throw new ErroreUtente(400, "Il messaggio è vuoto: scrivi una domanda.");
+      throw new ErroreUtente(400, "Il messaggio è vuoto: scrivi una domanda.", "messaggio_vuoto");
     }
     const testo = messaggio.trim();
     if (testo.length > LUNGHEZZA_MASSIMA_MESSAGGIO) {
-      throw new ErroreUtente(400, `Il messaggio è troppo lungo: al massimo ${LUNGHEZZA_MASSIMA_MESSAGGIO} caratteri.`);
+      throw new ErroreUtente(400, `Il messaggio è troppo lungo: al massimo ${LUNGHEZZA_MASSIMA_MESSAGGIO} caratteri.`, "messaggio_lungo");
     }
 
     controllaTettoGiornaliero();
     const storico = leggiSessione(sessionId);
-    const esito = await rispondi(storico, testo, controller.signal);
+    const esito = await rispondi(storico, testo, controller.signal, lingua);
 
     // In memoria salvo solo domanda e risposta finale, e solo se la richiesta è riuscita
     const aggiornato = [...storico, { role: "user", content: testo }, { role: "assistant", content: esito.risposta }];
@@ -517,6 +534,54 @@ app.post("/api/chat", limiteFrequenza, async (req, res, next) => {
       return;
     }
     console.log(`[chat] richiesta non riuscita | tempo: ${secondi}s | chiamate OpenAI totali: ${chiamateOpenAIUsate}`);
+    next(errore);
+  }
+});
+
+// Azioni dirette dei pulsanti: {"sessionId": "...", "lingua": "it" | "en"}.
+// Gli strumenti li chiama il codice (azioni.js); stessi limiti di frequenza e di token della chat.
+app.post("/api/azioni/:azione", limiteFrequenza, async (req, res, next) => {
+  const inizio = Date.now();
+  const { azione } = req.params;
+
+  // Come per la chat: se il front end chiude la connessione si interrompono le chiamate
+  const controller = new AbortController();
+  res.on("close", () => {
+    if (!res.writableEnded) controller.abort();
+  });
+
+  try {
+    if (!AZIONI.includes(azione)) {
+      throw new ErroreUtente(404, "Azione non disponibile.", "azione_sconosciuta");
+    }
+    const { sessionId } = req.body ?? {};
+    const lingua = leggiLingua(req.body?.lingua);
+    controllaSessione(sessionId);
+    controllaTettoGiornaliero();
+
+    const storico = leggiSessione(sessionId);
+    const { esito, richiesta, rispostaPerMemoria } = await azioni.eseguiAzione(azione, {
+      lingua, storico, segnale: controller.signal,
+    });
+
+    // In memoria vanno la richiesta (con il periodo esplicito) e la risposta, come per la chat:
+    // così dopo si può chiedere in chat, per esempio, "e la settimana prima?"
+    const aggiornato = [...storico, { role: "user", content: richiesta }, { role: "assistant", content: rispostaPerMemoria }];
+    salvaSessione(sessionId, aggiornato.slice(-MESSAGGI_IN_MEMORIA));
+
+    const secondi = ((Date.now() - inizio) / 1000).toFixed(1);
+    console.log(
+      `[azione ${azione}] strumenti: ${esito.strumenti.map((s) => s.nome).join(" -> ")} | token: ${esito.token} | ` +
+        `tempo: ${secondi}s | token oggi: ${tokenUsatiOggi()}/${TETTO_TOKEN_GIORNALIERO} | chiamate OpenAI totali: ${chiamateOpenAIUsate}`
+    );
+    res.json({ ...esito, azione, richiesta });
+  } catch (errore) {
+    const secondi = ((Date.now() - inizio) / 1000).toFixed(1);
+    if (errore instanceof RichiestaAnnullata) {
+      console.log(`[azione ${azione}] richiesta annullata dal client | tempo: ${secondi}s`);
+      return;
+    }
+    console.log(`[azione ${azione}] richiesta non riuscita (${errore.name}) | tempo: ${secondi}s`);
     next(errore);
   }
 });
@@ -544,7 +609,7 @@ app.get("/api/health", async (req, res) => {
 // Gestione centralizzata degli errori: solo messaggi fissi in italiano
 app.use((errore, req, res, next) => {
   if (errore instanceof ErroreUtente) {
-    return res.status(errore.stato).json({ errore: errore.message });
+    return res.status(errore.stato).json({ errore: errore.message, codice: errore.codice });
   }
   // JSON malformato o corpo troppo grande (errori generati da express.json)
   if (errore.type === "entity.parse.failed") {

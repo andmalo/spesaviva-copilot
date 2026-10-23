@@ -1,9 +1,11 @@
 // Indicatore di attesa: tre puntini animati e una scritta che cambia dopo 8 secondi.
 import { useEffect, useState } from 'react'
+import { useTesti } from '../i18n.js'
 
 const SECONDI_PRIMA_DEL_CAMBIO = 8
 
 export default function TypingIndicator() {
+  const { t } = useTesti()
   const [attesaLunga, setAttesaLunga] = useState(false)
 
   // Dopo 8 secondi probabilmente è in corso un'analisi dei dati, che richiede più tempo
@@ -21,9 +23,7 @@ export default function TypingIndicator() {
           <span />
           <span />
         </span>
-        <span>
-          {attesaLunga ? 'Sto analizzando i dati, può richiedere fino a un minuto…' : 'Sto ragionando sulla tua domanda…'}
-        </span>
+        <span>{attesaLunga ? t('attesaLunga') : t('attesaBreve')}</span>
       </div>
     </div>
   )

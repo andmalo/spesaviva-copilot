@@ -1,8 +1,10 @@
 // Campo di testo per scrivere la domanda: invio con Enter o con il pulsante.
 import { useState } from 'react'
 import { LUNGHEZZA_MASSIMA } from '../config.js'
+import { useTesti } from '../i18n.js'
 
 export default function Composer({ onInvia, disattivato }) {
+  const { t } = useTesti()
   const [testo, setTesto] = useState('')
   const vuoto = testo.trim() === ''
 
@@ -29,7 +31,7 @@ export default function Composer({ onInvia, disattivato }) {
       }}
     >
       <label htmlFor="campo-domanda" className="composer__etichetta">
-        La tua domanda
+        {t('campoEtichetta')}
       </label>
       <div className="composer__riga">
         <textarea
@@ -41,10 +43,10 @@ export default function Composer({ onInvia, disattivato }) {
           onKeyDown={gestisciTasto}
           maxLength={LUNGHEZZA_MASSIMA}
           disabled={disattivato}
-          placeholder="Scrivi una domanda sul negozio o sulle procedure…"
+          placeholder={t('campoSegnaposto')}
           aria-describedby="contatore-caratteri"
         />
-        <button type="submit" className="composer__invia" aria-label="Invia la domanda" disabled={disattivato || vuoto}>
+        <button type="submit" className="composer__invia" aria-label={t('inviaAria')} disabled={disattivato || vuoto}>
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <path d="M4 12h14M13 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
