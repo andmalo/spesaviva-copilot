@@ -70,3 +70,19 @@
   nel test finale sulle 20 domande.
 - Principio: l'LLM decide cosa fare e cosa mostrare, il codice
   esegue i passaggi che devono essere sempre uguali.
+
+## 2026-10-23 – Limiti noti del data agent
+- Domande 11 e 15: riformulando la domanda per analizza_dati,
+  l'orchestratore perde la premessa o le parole chiave ("calate",
+  "più"). Il data agent non può correggere una premessa che non vede.
+  Errore identico con gpt-4.1-mini e con gpt-4.1.
+- Domanda 14 (scarti rispetto agli altri negozi): gpt-4.1 la risolve
+  3 volte su 3, a circa 4,7 volte il costo per domanda. Alternativa più
+  economica: uno strumento deterministico di confronto tra negozi.
+- Domanda 17 (scarti di ortofrutta e procedura): instabile con
+  entrambi i modelli.
+- Domanda 18: la sezione giusta del manuale ("Ritardi di consegna e
+  prodotti a scaffale vuoto") era tra i risultati, quinta con distanza
+  0,378, ma è stata tagliata dal limite k=3.
+- Decisione: si resta su gpt-4.1-mini per contenere i costi.
+
