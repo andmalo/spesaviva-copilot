@@ -895,6 +895,72 @@ button:disabled {
   overflow-wrap: anywhere;
 }
 
+/* Valutazione della risposta: pollici e commento facoltativo */
+.valutazione {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--bordo);
+}
+
+.valutazione__pulsanti {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.valutazione__pollice {
+  display: inline-flex;
+  padding: 6px;
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio-piccolo);
+  background: var(--superficie);
+  color: var(--testo-secondario);
+  cursor: pointer;
+}
+
+.valutazione__pollice:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.valutazione__pollice--scelto,
+.valutazione__pollice--scelto:disabled {
+  border-color: var(--verde);
+  color: var(--verde);
+  opacity: 1;
+}
+
+.valutazione__grazie {
+  margin-left: 6px;
+  font-size: 13px;
+  color: var(--testo-secondario);
+}
+
+.valutazione__commento {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.valutazione__commento textarea {
+  padding: 6px 8px;
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio-piccolo);
+  font: inherit;
+  resize: vertical;
+}
+
+.valutazione__commento button {
+  justify-self: start;
+}
+
+.valutazione__errore {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--avviso-testo);
+}
+
 /* Menu dello scenario della demo nell'intestazione */
 .selettore-scenario {
   display: inline-flex;

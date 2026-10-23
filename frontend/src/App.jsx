@@ -121,6 +121,21 @@ export default function App() {
     richiedi(`/api/azioni/${azione}`, {}, t(`azione_${azione}`))
   }
 
+  // Valutazione di una risposta (pollici): restituisce true se il back end l'ha registrata
+  async function inviaValutazione(idMessaggio, voto, commento) {
+    try {
+      const risposta = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId, idMessaggio, voto, ...(commento && { commento }) }),
+        signal: AbortSignal.timeout(15_000),
+      })
+      return risposta.ok
+    } catch {
+      return false
+    }
+  }
+
   // Nuova conversazione: annulla la richiesta in corso, svuota la chat e cambia sessione
   function nuovaConversazione() {
     if (richiestaInCorso.current) {
@@ -152,6 +167,7 @@ export default function App() {
           onNuovaConversazione={nuovaConversazione}
           scenario={scenario}
           onScenario={cambiaScenario}
+          onValuta={inviaValutazione}
         />
       </div>
     </LinguaContext.Provider>

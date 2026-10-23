@@ -6,7 +6,7 @@ import Composer from './Composer.jsx'
 import { SCENARI } from '../config.js'
 import { LINGUE, formattaData, useTesti } from '../i18n.js'
 
-export default function ChatWindow({ messaggi, inAttesa, onInvia, onNuovaConversazione, scenario, onScenario }) {
+export default function ChatWindow({ messaggi, inAttesa, onInvia, onNuovaConversazione, scenario, onScenario, onValuta }) {
   const { lingua, setLingua, t } = useTesti()
   const fineMessaggi = useRef(null)
 
@@ -67,7 +67,7 @@ export default function ChatWindow({ messaggi, inAttesa, onInvia, onNuovaConvers
         />
 
         {messaggi.map((messaggio) => (
-          <Message key={messaggio.id} messaggio={messaggio} />
+          <Message key={messaggio.id} messaggio={messaggio} onValuta={onValuta} />
         ))}
 
         {inAttesa && <TypingIndicator />}

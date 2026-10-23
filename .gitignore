@@ -19,3 +19,6 @@ data_agent/charts/
 .DS_Store
 Thumbs.db
 .vscode/
+
+# Valutazioni delle risposte (dati degli utenti)
+backend/feedback.jsonl

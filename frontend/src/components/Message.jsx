@@ -5,6 +5,7 @@ import Riconoscimenti from './Riconoscimenti.jsx'
 import ReportMail from './ReportMail.jsx'
 import Eccedenze from './Eccedenze.jsx'
 import ComeCalcolato from './ComeCalcolato.jsx'
+import Valutazione from './Valutazione.jsx'
 import { useTesti } from '../i18n.js'
 
 // Il markdown scritto dall'LLM non deve far caricare nulla dall'esterno:
@@ -25,7 +26,7 @@ function Avatar({ avviso = false }) {
   )
 }
 
-export default function Message({ messaggio }) {
+export default function Message({ messaggio, onValuta }) {
   const { t } = useTesti()
 
   // Testo alternativo dei grafici: se c'è un grafico per ogni analisi, uso la domanda dell'analisi
@@ -73,7 +74,7 @@ export default function Message({ messaggio }) {
   const {
     risposta, strumenti = [], grafici = [], sezioni_consultate = [], pulizia,
     riconoscimenti = [], bozza_riconoscimento: bozza = null, report = null, eccedenze_donate: eccedenze = null,
-    calcoli = [],
+    calcoli = [], id_messaggio: idMessaggio = null,
   } = messaggio.dati
 
   return (
@@ -123,6 +124,9 @@ export default function Message({ messaggio }) {
         {calcoli.length > 0 && <ComeCalcolato calcoli={calcoli} />}
 
         {pulizia && <p className="nota-pulizia">{pulizia}</p>}
+
+        {/* Pollici per valutare la risposta (solo se il back end le ha dato un id) */}
+        {idMessaggio && onValuta && <Valutazione idMessaggio={idMessaggio} onValuta={onValuta} />}
       </article>
     </div>
   )

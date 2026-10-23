@@ -21,6 +21,7 @@ const { creaClient } = require("./rag/config");
 const { separaBozza, separaFonti, togliDomandaFinale, aggiungiFonteUfficiale } = require("./testo_risposte");
 const { AZIONI, creaAzioni } = require("./azioni");
 const { SCENARI, trovaScenario, dateScenario } = require("./scenari");
+const { creaFeedback } = require("./feedback");
 
 // ---------------------------------------------------------------------------
 // Configurazione
@@ -480,6 +481,12 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
 // Azioni dirette dei pulsanti (briefing, soglie, report), con gli stessi servizi della chat
 const azioni = creaAzioni({ chiamaModello, componiMessaggi });
 
+// Valutazioni delle risposte: una riga per voto in feedback.jsonl (FILE_FEEDBACK solo per i test)
+const feedback = creaFeedback({
+  percorsoFile: process.env.FILE_FEEDBACK || path.join(__dirname, "feedback.jsonl"),
+  ErroreUtente,
+});
+
 const app = express();
 
 // CORS abilitato solo per il front end React
@@ -530,6 +537,10 @@ app.post("/api/chat", limiteFrequenza, async (req, res, next) => {
     // In memoria salvo solo domanda e risposta finale, e solo se la richiesta è riuscita
     const aggiornato = [...storico, { role: "user", content: testo }, { role: "assistant", content: esito.risposta }];
     salvaSessione(sessionId, aggiornato.slice(-MESSAGGI_IN_MEMORIA), scenario);
+    // Id della risposta, per la valutazione con i pollici
+    esito.id_messaggio = feedback.ricordaRisposta({
+      sessionId, scenario: scenario.id, domanda: testo, strumenti: esito.strumenti, risposta: esito.risposta,
+    });
 
     // Log della richiesta: strumenti, token e tempo
     const elencoStrumenti = esito.strumenti.map((s) => s.nome).join(" -> ") || "nessuno";
@@ -583,6 +594,14 @@ app.post("/api/azioni/:azione", limiteFrequenza, async (req, res, next) => {
     // così dopo si può chiedere in chat, per esempio, "e la settimana prima?"
     const aggiornato = [...storico, { role: "user", content: richiesta }, { role: "assistant", content: rispostaPerMemoria }];
     salvaSessione(sessionId, aggiornato.slice(-MESSAGGI_IN_MEMORIA), scenario);
+    esito.id_messaggio = feedback.ricordaRisposta({
+      sessionId, scenario: scenario.id, domanda: richiesta, strumenti: esito.strumenti,
+      // Per il report si salva anche la bozza della mail, non solo la frase che la presenta
+      risposta: esito.report ? `${esito.risposta}
+
+${esito.report.oggetto}
+${esito.report.corpo}` : esito.risposta,
+    });
 
     const secondi = ((Date.now() - inizio) / 1000).toFixed(1);
     console.log(
@@ -597,6 +616,20 @@ app.post("/api/azioni/:azione", limiteFrequenza, async (req, res, next) => {
       return;
     }
     console.log(`[azione ${azione}] richiesta non riuscita (${errore.name}) | tempo: ${secondi}s`);
+    next(errore);
+  }
+});
+
+// Valutazione di una risposta: {"sessionId", "idMessaggio", "voto": "su" | "giu", "commento"?}.
+// Stesso limite di frequenza della chat; nessuna chiamata a OpenAI.
+app.post("/api/feedback", limiteFrequenza, (req, res, next) => {
+  try {
+    const { sessionId, idMessaggio, voto, commento } = req.body ?? {};
+    controllaSessione(sessionId);
+    const riga = feedback.registraVoto({ sessionId, idMessaggio, voto, commento });
+    console.log(`[feedback] voto: ${riga.voto} | strumenti: ${riga.strumenti.join(", ") || "nessuno"}${riga.commento ? " | con commento" : ""}`);
+    res.json({ ok: true });
+  } catch (errore) {
     next(errore);
   }
 });
