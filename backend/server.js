@@ -20,6 +20,7 @@ const {
 const { creaClient } = require("./rag/config");
 const { separaBozza, separaFonti, togliDomandaFinale, aggiungiFonteUfficiale } = require("./testo_risposte");
 const { AZIONI, creaAzioni } = require("./azioni");
+const { SCENARI, trovaScenario, dateScenario } = require("./scenari");
 
 // ---------------------------------------------------------------------------
 // Configurazione
@@ -57,7 +58,8 @@ const MAX_CHIAMATE_OPENAI = process.env.MAX_CHIAMATE_OPENAI ? Number(process.env
 let chiamateOpenAIUsate = 0;
 
 // Controllo all'avvio che la configurazione necessaria sia presente
-for (const variabile of ["OPENAI_API_KEY", "ORCHESTRATOR_MODEL", "NEGOZIO_UTENTE", "DATA_RIFERIMENTO"]) {
+// (data e negozio non servono più: vengono dallo scenario della demo, in scenari.json)
+for (const variabile of ["OPENAI_API_KEY", "ORCHESTRATOR_MODEL"]) {
   if (!process.env[variabile]) {
     console.error(`Variabile ${variabile} mancante nel file .env`);
     process.exit(1);
@@ -69,26 +71,27 @@ if (process.env.ORCHESTRATOR_MODEL === "nome-del-modello") {
 }
 const MODELLO = process.env.ORCHESTRATOR_MODEL;
 
-// Date del prompt, con la stessa logica del data agent:
-// ieri = DATA_RIFERIMENTO meno 1 giorno; inizio settimana = ieri meno 6 giorni;
-// mese corrente = mese di ieri, per esteso
-const OGGI = new Date(`${process.env.DATA_RIFERIMENTO}T12:00:00`);
-const IERI = new Date(OGGI);
-IERI.setDate(IERI.getDate() - 1);
-const INIZIO_SETTIMANA = new Date(IERI);
-INIZIO_SETTIMANA.setDate(INIZIO_SETTIMANA.getDate() - 6);
-const MESE_CORRENTE = IERI.toLocaleDateString("it-IT", { month: "long", year: "numeric" }); // es. "agosto 2026"
-
 // Prompt e definizioni degli strumenti, letti una sola volta dai file in prompts/
 const CARTELLA_PROMPT = path.join(__dirname, "prompts");
-const PROMPT_SISTEMA = fs
-  .readFileSync(path.join(CARTELLA_PROMPT, "sistema.txt"), "utf-8")
-  .replaceAll("{negozio}", process.env.NEGOZIO_UTENTE)
-  .replaceAll("{oggi}", formattaData(OGGI))
-  .replaceAll("{ieri}", formattaData(IERI))
-  .replaceAll("{inizio_settimana}", formattaData(INIZIO_SETTIMANA))
-  .replaceAll("{mese_corrente}", MESE_CORRENTE);
+const MODELLO_PROMPT = fs.readFileSync(path.join(CARTELLA_PROMPT, "sistema.txt"), "utf-8");
 const DEFINIZIONI_STRUMENTI = JSON.parse(fs.readFileSync(path.join(CARTELLA_PROMPT, "strumenti.json"), "utf-8"));
+
+// Prompt di sistema di uno scenario, con data e negozio nei segnaposto (stessa logica del data agent:
+// ieri = oggi meno 1 giorno, inizio settimana = ieri meno 6 giorni, mese corrente = mese di ieri).
+// Si costruisce una volta per scenario: resta identico tra le chiamate, così vale la cache di OpenAI.
+const promptPerScenario = new Map();
+function promptSistema(scenario) {
+  if (!promptPerScenario.has(scenario.id)) {
+    const d = dateScenario(scenario);
+    promptPerScenario.set(scenario.id, MODELLO_PROMPT
+      .replaceAll("{negozio}", scenario.negozio)
+      .replaceAll("{oggi}", d.oggiEsteso)
+      .replaceAll("{ieri}", d.ieriEsteso)
+      .replaceAll("{inizio_settimana}", d.inizioSettimanaEsteso)
+      .replaceAll("{mese_corrente}", d.meseCorrente));
+  }
+  return promptPerScenario.get(scenario.id);
+}
 
 // Client OpenAI: nessun nuovo tentativo automatico, per non moltiplicare le chiamate
 const openai = new OpenAI({ maxRetries: 0, timeout: TIMEOUT_OPENAI_MS });
@@ -105,10 +108,6 @@ const consumoGiornaliero = { giorno: oggiLocale(), token: 0 };
 // Funzioni di supporto
 // ---------------------------------------------------------------------------
 
-// Scrive una data per esteso, es. "martedì 1 settembre 2026"
-function formattaData(data) {
-  return data.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-}
 
 // Data di oggi (ora locale) nel formato AAAA-MM-GG, per azzerare il tetto giornaliero
 function oggiLocale() {
@@ -147,15 +146,18 @@ function pulisciSessioni() {
 }
 
 // Storico di una sessione (vuoto se non esiste o è scaduta)
-function leggiSessione(sessionId) {
+function leggiSessione(sessionId, scenario) {
   pulisciSessioni();
-  return sessioni.get(sessionId)?.messaggi ?? [];
+  const sessione = sessioni.get(sessionId);
+  // La memoria vale solo per lo stesso scenario (data e negozio diversi = conversazione diversa)
+  if (!sessione || sessione.scenario !== scenario.id) return [];
+  return sessione.messaggi;
 }
 
 // Salva lo storico e sposta la sessione in fondo (la più recente); oltre 100 si toglie la più vecchia
-function salvaSessione(sessionId, messaggi) {
+function salvaSessione(sessionId, messaggi, scenario) {
   sessioni.delete(sessionId);
-  sessioni.set(sessionId, { messaggi, ultimoUso: Date.now() });
+  sessioni.set(sessionId, { messaggi, ultimoUso: Date.now(), scenario: scenario.id });
   while (sessioni.size > MAX_SESSIONI) {
     sessioni.delete(sessioni.keys().next().value);
   }
@@ -182,9 +184,9 @@ function leggiLingua(valore) {
 
 // Messaggi per il modello: prompt di sistema (sempre uguale, così resta nella cache di OpenAI),
 // memoria della sessione, lingua della risposta e infine il messaggio o le istruzioni dell'azione
-function componiMessaggi(storico, lingua, contenuto) {
+function componiMessaggi(storico, lingua, contenuto, scenario) {
   return [
-    { role: "system", content: PROMPT_SISTEMA },
+    { role: "system", content: promptSistema(scenario) },
     ...storico.slice(-MESSAGGI_IN_MEMORIA),
     { role: "system", content: `Lingua della risposta: ${LINGUE[lingua]}.` },
     { role: "user", content: contenuto },
@@ -251,6 +253,14 @@ function leggiPeriodo(argomentiJson) {
 // Ciclo di function calling
 // ---------------------------------------------------------------------------
 
+// Scenario della richiesta: si accetta SOLO l'id di uno scenario della lista (mai date o negozi liberi).
+// Se manca si usa lo scenario predefinito.
+function leggiScenario(id) {
+  const scenario = trovaScenario(id);
+  if (!scenario) throw new ErroreUtente(400, "Scenario della demo non valido.", "scenario_non_valido");
+  return scenario;
+}
+
 // Controlla il sessionId inviato dal front end
 function controllaSessione(sessionId) {
   if (typeof sessionId !== "string" || !sessionId.trim() || sessionId.length > 100) {
@@ -295,9 +305,9 @@ async function chiamaModello(messaggi, segnale) {
  * @param {AbortSignal} segnale - si attiva se il front end chiude la richiesta
  * @param {string} lingua - "it" oppure "en"
  */
-async function rispondi(storico, messaggio, segnale, lingua = "it") {
+async function rispondi(storico, messaggio, segnale, lingua, scenario) {
   // Messaggi mandati al modello: sistema + ultimi messaggi della sessione + lingua + nuovo messaggio
-  const messaggi = componiMessaggi(storico, lingua, messaggio);
+  const messaggi = componiMessaggi(storico, lingua, messaggio, scenario);
 
   const esito = {
     risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null,
@@ -429,8 +439,8 @@ async function rispondi(storico, messaggio, segnale, lingua = "it") {
           // Per il front end: la domanda passata, oppure il periodo controllato
           esito.strumenti.push({ nome, domanda: periodo ? `dal ${periodo.inizio} al ${periodo.fine}` : domanda });
           const risultato = senzaParametri
-            ? await STRUMENTI[nome](segnale)
-            : await STRUMENTI[nome](periodo ?? domanda, segnale);
+            ? await STRUMENTI[nome](segnale, scenario.id)
+            : await STRUMENTI[nome](periodo ?? domanda, segnale, scenario.id);
           controllaAnnullamento();
           contenuto = risultato.testoPerLLM;
 
@@ -465,7 +475,7 @@ async function rispondi(storico, messaggio, segnale, lingua = "it") {
 // ---------------------------------------------------------------------------
 
 // Azioni dirette dei pulsanti (briefing, soglie, report), con gli stessi servizi della chat
-const azioni = creaAzioni({ chiamaModello, componiMessaggi, dataRiferimento: process.env.DATA_RIFERIMENTO });
+const azioni = creaAzioni({ chiamaModello, componiMessaggi });
 
 const app = express();
 
@@ -496,6 +506,7 @@ app.post("/api/chat", limiteFrequenza, async (req, res, next) => {
   try {
     const { sessionId, messaggio } = req.body ?? {};
     const lingua = leggiLingua(req.body?.lingua);
+    const scenario = leggiScenario(req.body?.scenario);
 
     controllaSessione(sessionId);
     if (typeof messaggio !== "string") {
@@ -510,12 +521,12 @@ app.post("/api/chat", limiteFrequenza, async (req, res, next) => {
     }
 
     controllaTettoGiornaliero();
-    const storico = leggiSessione(sessionId);
-    const esito = await rispondi(storico, testo, controller.signal, lingua);
+    const storico = leggiSessione(sessionId, scenario);
+    const esito = await rispondi(storico, testo, controller.signal, lingua, scenario);
 
     // In memoria salvo solo domanda e risposta finale, e solo se la richiesta è riuscita
     const aggiornato = [...storico, { role: "user", content: testo }, { role: "assistant", content: esito.risposta }];
-    salvaSessione(sessionId, aggiornato.slice(-MESSAGGI_IN_MEMORIA));
+    salvaSessione(sessionId, aggiornato.slice(-MESSAGGI_IN_MEMORIA), scenario);
 
     // Log della richiesta: strumenti, token e tempo
     const elencoStrumenti = esito.strumenti.map((s) => s.nome).join(" -> ") || "nessuno";
@@ -556,18 +567,19 @@ app.post("/api/azioni/:azione", limiteFrequenza, async (req, res, next) => {
     }
     const { sessionId } = req.body ?? {};
     const lingua = leggiLingua(req.body?.lingua);
+    const scenario = leggiScenario(req.body?.scenario);
     controllaSessione(sessionId);
     controllaTettoGiornaliero();
 
-    const storico = leggiSessione(sessionId);
+    const storico = leggiSessione(sessionId, scenario);
     const { esito, richiesta, rispostaPerMemoria } = await azioni.eseguiAzione(azione, {
-      lingua, storico, segnale: controller.signal,
+      lingua, storico, segnale: controller.signal, scenario,
     });
 
     // In memoria vanno la richiesta (con il periodo esplicito) e la risposta, come per la chat:
     // così dopo si può chiedere in chat, per esempio, "e la settimana prima?"
     const aggiornato = [...storico, { role: "user", content: richiesta }, { role: "assistant", content: rispostaPerMemoria }];
-    salvaSessione(sessionId, aggiornato.slice(-MESSAGGI_IN_MEMORIA));
+    salvaSessione(sessionId, aggiornato.slice(-MESSAGGI_IN_MEMORIA), scenario);
 
     const secondi = ((Date.now() - inizio) / 1000).toFixed(1);
     console.log(
@@ -584,6 +596,11 @@ app.post("/api/azioni/:azione", limiteFrequenza, async (req, res, next) => {
     console.log(`[azione ${azione}] richiesta non riuscita (${errore.name}) | tempo: ${secondi}s`);
     next(errore);
   }
+});
+
+// Scenari della demo disponibili (il front end mostra il menu e invia solo l'id)
+app.get("/api/scenari", (req, res) => {
+  res.json(SCENARI);
 });
 
 // Stato del server e dei servizi da cui dipende

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "tranquilla",
+    "oggi": "2026-09-01",
+    "negozio": "NEG01",
+    "luogo": "Lugo",
+    "capoNegozio": "Marco Bertoni",
+    "nomeUtente": "Marco"
+  },
+  {
+    "id": "caldo",
+    "oggi": "2025-07-17",
+    "negozio": "NEG01",
+    "luogo": "Lugo",
+    "capoNegozio": "Marco Bertoni",
+    "nomeUtente": "Marco"
+  },
+  {
+    "id": "fornitore",
+    "oggi": "2026-03-10",
+    "negozio": "NEG03",
+    "luogo": null,
+    "capoNegozio": "Capo Negozio NEG03",
+    "nomeUtente": null
+  }
+]

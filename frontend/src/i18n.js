@@ -6,16 +6,15 @@ export const LINGUE = ['it', 'en']
 
 const TESTI = {
   it: {
-    // Scenario e barra laterale
+    // Scenario e barra laterale (date, negozio e capo negozio vengono da backend/scenari.json)
     sottotitolo: 'Store Manager Copilot',
-    nomeUtente: 'Marco',
-    negozio: 'NEG01 · Lugo',
     negozioAria: 'Negozio',
     capoNegozioEtichetta: 'Capo negozio',
-    capoNegozio: 'Marco Bertoni',
     datiAggiornatiEtichetta: 'Dati aggiornati al',
-    dataDati: '31 agosto 2026',
-    dataOggi: 'Martedì 1 settembre 2026',
+    scenarioEtichetta: 'Scenario della demo',
+    scenario_tranquilla: 'Giornata tranquilla',
+    scenario_caldo: 'Ondata di caldo',
+    scenario_fornitore: 'Fornitore in crisi',
     azioniTitolo: 'Azioni',
     azione_briefing: 'Briefing del mattino',
     azione_soglie: 'Controllo soglie della settimana',
@@ -40,6 +39,7 @@ const TESTI = {
 
     // Benvenuto, campo di testo, attesa
     benvenutoTitolo: 'Buongiorno {nome}, dimmi pure di cosa hai bisogno.',
+    benvenutoTitoloSenzaNome: 'Buongiorno, dimmi pure di cosa hai bisogno.',
     benvenutoTesto:
       'Posso analizzare i dati del negozio o cercare nel manuale operativo SpesaViva. Per partire, prova il briefing del mattino.',
     campoEtichetta: 'La tua domanda',
@@ -82,14 +82,13 @@ const TESTI = {
 
   en: {
     sottotitolo: 'Store Manager Copilot',
-    nomeUtente: 'Marco',
-    negozio: 'NEG01 · Lugo',
     negozioAria: 'Store',
     capoNegozioEtichetta: 'Store manager',
-    capoNegozio: 'Marco Bertoni',
     datiAggiornatiEtichetta: 'Data updated to',
-    dataDati: '31 August 2026',
-    dataOggi: 'Tuesday 1 September 2026',
+    scenarioEtichetta: 'Demo scenario',
+    scenario_tranquilla: 'Quiet day',
+    scenario_caldo: 'Heatwave',
+    scenario_fornitore: 'Supplier in trouble',
     azioniTitolo: 'Actions',
     azione_briefing: 'Morning briefing',
     azione_soglie: "This week's threshold check",
@@ -112,6 +111,7 @@ const TESTI = {
     linguaAria: 'Interface language',
 
     benvenutoTitolo: 'Good morning {nome}, how can I help you?',
+    benvenutoTitoloSenzaNome: 'Good morning, how can I help you?',
     benvenutoTesto:
       'I can analyse the store data or search the SpesaViva operations manual. To get started, try the morning briefing.',
     campoEtichetta: 'Your question',
@@ -154,6 +154,7 @@ const TESTI = {
     errore_messaggio_non_valido: 'The message must be text.',
     errore_sessione_non_valida: 'Invalid session: start a new conversation.',
     errore_azione_sconosciuta: 'This action is not available.',
+    errore_scenario_non_valido: 'Invalid demo scenario: choose one from the menu.',
   },
 }
 
@@ -174,6 +175,21 @@ export function creaTraduttore(lingua) {
 /** Vero se esiste un testo per questa chiave (serve per gli errori con codice). */
 export function haTesto(lingua, chiave) {
   return Object.hasOwn(TESTI[lingua], chiave)
+}
+
+/**
+ * Data AAAA-MM-GG nella lingua scelta: "Martedì 1 settembre 2026" / "Tuesday 1 September 2026".
+ * @param {number} spostamento - giorni da aggiungere (-1 = il giorno prima)
+ * @param {boolean} conGiorno - se mostrare il giorno della settimana
+ */
+export function formattaData(iso, lingua, { spostamento = 0, conGiorno = false } = {}) {
+  const [anno, mese, giorno] = iso.split('-').map(Number)
+  // Mezzogiorno in ora locale: nessun problema con l'ora legale
+  const data = new Date(anno, mese - 1, giorno + spostamento, 12)
+  const testo = data.toLocaleDateString(lingua === 'en' ? 'en-GB' : 'it-IT', {
+    ...(conGiorno && { weekday: 'long' }), day: 'numeric', month: 'long', year: 'numeric',
+  })
+  return testo.charAt(0).toUpperCase() + testo.slice(1)
 }
 
 /** Numero con il formato della lingua: 4,90% in italiano, 4.90% in inglese. */

@@ -10,5 +10,9 @@ export const TIMEOUT_RICHIESTA_MS = 150_000
 // Azioni dirette della barra laterale (POST /api/azioni/:azione)
 export const AZIONI = ['briefing', 'soglie', 'report']
 
+// Scenari della demo: lo stesso file letto dal back end e dal data agent.
+// Al back end si invia solo l'id dello scenario, mai date o negozi.
+export { default as SCENARI } from '../../backend/scenari.json'
+
 // Chiave usata per ricordare la lingua scelta nel browser
 export const CHIAVE_LINGUA = 'spesaviva-lingua'

@@ -840,6 +840,26 @@ button:disabled {
   background: var(--dati-sfondo);
 }
 
+/* Menu dello scenario della demo nell'intestazione */
+.selettore-scenario {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--testo-secondario);
+}
+
+.selettore-scenario select {
+  padding: 5px 8px;
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio-piccolo);
+  background: var(--superficie);
+  color: var(--testo);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
 /* Selettore della lingua (IT / EN) nell'intestazione */
 .selettore-lingua {
   display: inline-flex;

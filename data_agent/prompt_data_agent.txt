@@ -19,8 +19,7 @@ sono in euro; scarti_kg_totali è l'unica colonna in chili.
 
 TEMPO
 Oggi è {oggi}. Ieri è {ieri}. "Questa settimana" sono i 7 giorni da
-{inizio_settimana} a {ieri}. "Questo mese" è {mese_corrente}, l'ultimo
-mese completo nei dati.
+{inizio_settimana} a {ieri}. "Questo mese" è {mese_corrente}.
 I dati arrivano fino a ieri ({ieri}) compreso: per oggi non ci sono ancora
 dati. Se la domanda riguarda oggi, analizza ieri e dillo chiaramente.
 Per qualsiasi analisi settimanale raggruppa per la colonna settimana:

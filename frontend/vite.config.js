@@ -17,6 +17,8 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       strictPort: true, // il back end accetta CORS solo da localhost:5173
+      // Oltre a frontend/, Vite può servire solo il file degli scenari condiviso con il back end
+      fs: { allow: ['.', path.join(CARTELLA_PROGETTO, 'backend', 'scenari.json')] },
       // Le chiamate a /api vanno al back end Node.js: il browser parla solo con Vite
       proxy: {
         '/api': {

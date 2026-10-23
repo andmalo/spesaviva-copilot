@@ -46,6 +46,8 @@ CARTELLA_AGENTE = Path(__file__).resolve().parent
 CARTELLA_PROGETTO = CARTELLA_AGENTE.parent
 PERCORSO_CSV = CARTELLA_PROGETTO / "data" / "dati_negozi.csv"
 PERCORSO_PROMPT = CARTELLA_AGENTE / "prompt_data_agent.txt"
+# Scenari della demo: lo stesso file letto dal back end
+PERCORSO_SCENARI = CARTELLA_PROGETTO / "backend" / "scenari.json"
 CARTELLA_GRAFICI = CARTELLA_AGENTE / "charts"
 
 # ---------------------------------------------------------------------------
@@ -58,7 +60,9 @@ VALORI_ENV = dotenv_values(CARTELLA_PROGETTO / ".env")
 
 # Variabili non segrete: copiate in os.environ (se non già impostate) per il resto del codice
 VARIABILI_PUBBLICHE = {
-    "OPENAI_MODEL", "ORCHESTRATOR_MODEL", "DATA_AGENT_MODEL", "DATA_RIFERIMENTO", "NEGOZIO_UTENTE",
+    "OPENAI_MODEL", "ORCHESTRATOR_MODEL", "DATA_AGENT_MODEL",
+    # Non più usate (data e negozio vengono dallo scenario), ma non segrete: possono restare nel .env
+    "DATA_RIFERIMENTO", "NEGOZIO_UTENTE",
     "BACKEND_PORT", "DATA_AGENT_PORT", "CHROMA_PORT",
     "LIMITE_RICHIESTE_MINUTO", "TETTO_TOKEN_GIORNALIERO",
 }
@@ -125,14 +129,45 @@ def carica_dati_puliti() -> None:
     logger.info("Dati caricati: %d righe dopo la pulizia", len(df_pulito))
 
 
-def nuova_copia_dati() -> pd.DataFrame:
-    """Copia profonda e indipendente dei dati puliti, nuova per ogni richiesta.
+def nuova_copia_dati(fino_a: date) -> pd.DataFrame:
+    """Copia profonda e indipendente dei dati puliti, nuova per ogni richiesta,
+    con i soli giorni fino a fino_a (ieri dello scenario): l'agente non vede il "futuro".
     Se l'impronta non torna (dati alterati), i dati si ricaricano dal CSV."""
     if hashlib.sha256(stato["dati"]).hexdigest() != stato["impronta"]:
         logger.error("Dati in memoria alterati: ricaricati dal CSV")
         carica_dati_puliti()
     # I bytes li ha creati questo servizio: pickle.loads non riceve mai dati esterni
-    return pickle.loads(stato["dati"])
+    df = pickle.loads(stato["dati"])
+    df = df[df["data"].dt.date <= fino_a].copy()
+    # La settimana che finisce dopo fino_a ora è parziale: la colonna settimana va svuotata
+    parziale = df["settimana"].notna() & ((df["settimana"] + pd.Timedelta(days=6)).dt.date > fino_a)
+    df.loc[parziale, "settimana"] = pd.NaT
+    return df.reset_index(drop=True)
+
+
+def leggi_scenario(id_scenario: str | None) -> dict:
+    """Scenario della richiesta: solo un id della lista (se manca, il primo).
+    Date e negozi liberi non si accettano mai."""
+    if id_scenario is None or id_scenario == "":
+        return stato["scenari"][0]
+    for scenario in stato["scenari"]:
+        if scenario["id"] == id_scenario:
+            return scenario
+    raise HTTPException(status_code=400, detail="Scenario della demo non valido.")
+
+
+def date_scenario(scenario: dict) -> tuple[date, date]:
+    """(oggi, ieri) dello scenario."""
+    oggi = date.fromisoformat(scenario["oggi"])
+    return oggi, oggi - timedelta(days=1)
+
+
+def descrivi_mese(ieri: date) -> str:
+    """Il mese di "ieri", come in backend/scenari.js: completo se ieri è l'ultimo giorno del mese."""
+    mese = f"{MESI[ieri.month - 1]} {ieri.year}"
+    if (ieri + timedelta(days=1)).month != ieri.month:
+        return f"{mese}, l'ultimo mese completo nei dati"
+    return f"{mese}, il mese in corso (dati dal 1 al {ieri.day} {mese})"
 
 
 def pulisci_grafici_vecchi() -> int:
@@ -169,14 +204,14 @@ async def ciclo_di_vita(app: FastAPI):
     """All'avvio controlla la configurazione, carica e pulisce i dati una sola volta."""
     if not _CHIAVE_OPENAI:
         raise RuntimeError("Variabile OPENAI_API_KEY mancante nel file .env")
-    for variabile in ("OPENAI_MODEL", "DATA_RIFERIMENTO", "NEGOZIO_UTENTE"):
-        if not os.getenv(variabile):
-            raise RuntimeError(f"Variabile {variabile} mancante nel file .env")
+    if not os.getenv("OPENAI_MODEL"):
+        raise RuntimeError("Variabile OPENAI_MODEL mancante nel file .env")
     if modello_data_agent() == "nome-del-modello":
         raise RuntimeError("Il modello del data agent nel file .env contiene ancora il valore di esempio")
 
     carica_dati_puliti()
     stato["testo_prompt"] = PERCORSO_PROMPT.read_text(encoding="utf-8")
+    stato["scenari"] = json.loads(PERCORSO_SCENARI.read_text(encoding="utf-8"))
     cancellati = pulisci_grafici_vecchi()
     if cancellati:
         logger.info("Cancellati %d grafici più vecchi di %d ore", cancellati, DURATA_GRAFICI_ORE)
@@ -191,29 +226,35 @@ CARTELLA_GRAFICI.mkdir(exist_ok=True)
 app.mount("/charts", StaticFiles(directory=CARTELLA_GRAFICI), name="charts")
 
 
+# Ogni richiesta porta l'id dello scenario della demo (data di "oggi" e negozio)
 class Domanda(BaseModel):
     domanda: str
+    scenario: str | None = None
 
 
 class Periodo(BaseModel):
     inizio: str  # AAAA-MM-GG
     fine: str    # AAAA-MM-GG
+    scenario: str | None = None
+
+
+class RichiestaBriefing(BaseModel):
+    scenario: str | None = None
 
 
 MAX_GIORNI_PERIODO = 400  # periodo massimo per il controllo delle soglie
 
 
-def costruisci_prompt() -> str:
-    """Riempie i segnaposto del prompt, come nel notebook."""
-    oggi = date.fromisoformat(os.getenv("DATA_RIFERIMENTO"))
-    ieri = oggi - timedelta(days=1)
+def costruisci_prompt(scenario: dict) -> str:
+    """Riempie i segnaposto del prompt con la data e il negozio dello scenario."""
+    oggi, ieri = date_scenario(scenario)
     inizio_settimana = ieri - timedelta(days=6)
     return stato["testo_prompt"].format(
         oggi=oggi.isoformat(),
         ieri=ieri.isoformat(),
         inizio_settimana=inizio_settimana.isoformat(),
-        mese_corrente=f"{MESI[ieri.month - 1]} {ieri.year}",
-        negozio=os.getenv("NEGOZIO_UTENTE"),
+        mese_corrente=descrivi_mese(ieri),
+        negozio=scenario["negozio"],
     )
 
 
@@ -252,7 +293,8 @@ def messaggio_errore(errore: Exception) -> str:
     return f"Errore interno durante l'analisi ({type(errore).__name__})."
 
 
-def esegui_analisi(domanda: str, percorso_grafico: Path, callbacks: list | None = None) -> tuple[str, int]:
+def esegui_analisi(domanda: str, percorso_grafico: Path, scenario: dict,
+                   callbacks: list | None = None) -> tuple[str, int]:
     """Fa analizzare la domanda al pandas agent su una copia nuova dei dati.
 
     Restituisce (testo della risposta, token usati). Il testo è già passato dal filtro
@@ -272,9 +314,9 @@ def esegui_analisi(domanda: str, percorso_grafico: Path, callbacks: list | None 
     )
     agente = create_pandas_dataframe_agent(
         llm,
-        nuova_copia_dati(),  # copia profonda, nuova per ogni richiesta
+        nuova_copia_dati(date_scenario(scenario)[1]),  # copia nuova, solo fino a ieri dello scenario
         agent_type="tool-calling",
-        prefix=costruisci_prompt(),
+        prefix=costruisci_prompt(scenario),
         number_of_head_rows=RIGHE_ANTEPRIMA,
         max_iterations=MAX_PASSI_PER_DOMANDA,
         max_execution_time=MAX_SECONDI_PER_DOMANDA,
@@ -316,13 +358,14 @@ def analizza(richiesta: Domanda, request: Request):
     domanda = richiesta.domanda.strip()
     if not domanda:
         raise HTTPException(status_code=400, detail="La domanda è vuota.")
+    scenario = leggi_scenario(richiesta.scenario)
 
     # Nome file unico per il grafico di questa richiesta (lo disegna il codice, non l'agente)
     nome_grafico = f"grafico_{uuid.uuid4().hex}.png"
     percorso_grafico = CARTELLA_GRAFICI / nome_grafico
 
     try:
-        risposta, token = esegui_analisi(domanda, percorso_grafico)
+        risposta, token = esegui_analisi(domanda, percorso_grafico, scenario)
     except Exception as errore:
         logger.error("Analisi non riuscita: %s", type(errore).__name__)
         raise HTTPException(status_code=500, detail=messaggio_errore(errore))
@@ -339,16 +382,17 @@ def analizza(richiesta: Domanda, request: Request):
 
 
 @app.post("/briefing")
-def briefing(request: Request):
+def briefing(request: Request, richiesta: RichiestaBriefing | None = None):
     """Briefing del mattino: KPI di ieri, anomalie secondo le soglie del manuale e grafico degli scarti.
     Calcolato solo con pandas, senza chiamate a OpenAI."""
     nome_grafico = f"briefing_{uuid.uuid4().hex}.png"
     percorso_grafico = CARTELLA_GRAFICI / nome_grafico
-    oggi = date.fromisoformat(os.getenv("DATA_RIFERIMENTO"))
+    scenario = leggi_scenario(richiesta.scenario if richiesta else None)
+    oggi, ieri = date_scenario(scenario)
 
     try:
-        # Copia nuova dei dati puliti, come per /analizza
-        risultato = prepara_briefing(nuova_copia_dati(), os.getenv("NEGOZIO_UTENTE"), oggi, percorso_grafico)
+        # Copia nuova dei dati puliti fino a ieri dello scenario, come per /analizza
+        risultato = prepara_briefing(nuova_copia_dati(ieri), scenario["negozio"], oggi, percorso_grafico)
     except ValueError as errore:
         # Messaggio scritto da noi in italiano (es. nessun dato per ieri): si può mostrare
         raise HTTPException(status_code=404, detail=str(errore))
@@ -371,6 +415,7 @@ def briefing(request: Request):
 def soglie(periodo: Periodo):
     """Controllo delle soglie del manuale sul periodo indicato (solo pandas, nessun LLM).
     Restituisce il testo compatto per l'LLM e i risultati strutturati."""
+    scenario = leggi_scenario(periodo.scenario)
     try:
         inizio = date.fromisoformat(periodo.inizio.strip())
         fine = date.fromisoformat(periodo.fine.strip())
@@ -378,7 +423,7 @@ def soglie(periodo: Periodo):
         raise HTTPException(status_code=400, detail="Date non valide: usa il formato AAAA-MM-GG.")
 
     # I dati arrivano fino a ieri: la fine del periodo non può andare oltre
-    ieri = date.fromisoformat(os.getenv("DATA_RIFERIMENTO")) - timedelta(days=1)
+    ieri = date_scenario(scenario)[1]
     nota = ""
     if fine > ieri:
         fine, nota = ieri, f"I dati arrivano fino a ieri: il periodo è stato limitato al {ieri.isoformat()}."
@@ -388,9 +433,9 @@ def soglie(periodo: Periodo):
         raise HTTPException(status_code=400, detail=f"Periodo troppo lungo: al massimo {MAX_GIORNI_PERIODO} giorni.")
 
     try:
-        dati = nuova_copia_dati()
-        esito = controlla_soglie(dati, os.getenv("NEGOZIO_UTENTE"), inizio, fine)
-        kpi = kpi_periodo(dati, os.getenv("NEGOZIO_UTENTE"), inizio, fine)
+        dati = nuova_copia_dati(ieri)
+        esito = controlla_soglie(dati, scenario["negozio"], inizio, fine)
+        kpi = kpi_periodo(dati, scenario["negozio"], inizio, fine)
     except ValueError as errore:
         # Messaggio scritto da noi in italiano (es. nessun dato nel periodo): si può mostrare
         raise HTTPException(status_code=404, detail=str(errore))

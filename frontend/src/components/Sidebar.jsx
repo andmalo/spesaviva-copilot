@@ -1,12 +1,12 @@
 // Barra laterale: logo, dati del negozio, pulsanti delle azioni dirette e domande rapide.
 import { AZIONI } from '../config.js'
-import { useTesti } from '../i18n.js'
+import { formattaData, useTesti } from '../i18n.js'
 
 // Classe CSS dell'etichetta per ogni tipo di domanda rapida
 const CLASSE_TIPO = { RAG: 'etichetta--manuale', DATI: 'etichetta--dati', FUORI: 'etichetta--fuori' }
 
-export default function Sidebar({ onDomanda, onAzione, inAttesa }) {
-  const { t } = useTesti()
+export default function Sidebar({ onDomanda, onAzione, inAttesa, scenario }) {
+  const { lingua, t } = useTesti()
   const tipi = t('tipoDomanda')
 
   return (
@@ -20,15 +20,16 @@ export default function Sidebar({ onDomanda, onAzione, inAttesa }) {
       </div>
 
       <section className="negozio" aria-label={t('negozioAria')}>
-        <div className="negozio__nome">{t('negozio')}</div>
+        <div className="negozio__nome">{scenario.luogo ? `${scenario.negozio} · ${scenario.luogo}` : scenario.negozio}</div>
         <dl className="negozio__dettagli">
           <div>
             <dt>{t('capoNegozioEtichetta')}</dt>
-            <dd>{t('capoNegozio')}</dd>
+            <dd>{scenario.capoNegozio}</dd>
           </div>
           <div>
             <dt>{t('datiAggiornatiEtichetta')}</dt>
-            <dd className="mono">{t('dataDati')}</dd>
+            {/* I dati arrivano fino al giorno prima di "oggi" */}
+            <dd className="mono">{formattaData(scenario.oggi, lingua, { spostamento: -1 })}</dd>
           </div>
         </dl>
       </section>

@@ -80,7 +80,7 @@ async function cerca_procedure(domanda, segnaleRichiesta) {
  * All'LLM passa solo il testo della risposta: URL del grafico e riepilogo
  * della pulizia vengono conservati per il front end.
  */
-async function analizza_dati(domanda, segnaleRichiesta) {
+async function analizza_dati(domanda, segnaleRichiesta, scenario) {
   const erroreGenerico = {
     grafico: null,
     pulizia: null,
@@ -92,7 +92,8 @@ async function analizza_dati(domanda, segnaleRichiesta) {
     risposta = await fetch(`${indirizzoDataAgent()}/analizza`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ domanda }),
+      // Lo scenario (solo l'id) dice al data agent quale data e quale negozio usare
+      body: JSON.stringify({ domanda, scenario }),
       // Nota: l'analisi già partita nel data agent finisce comunque; si smette solo di aspettarla
       signal: segnaleConTimeout(TIMEOUT_DATA_AGENT_MS, segnaleRichiesta),
     });
@@ -229,13 +230,15 @@ function testoBriefing({ kpi, controlli, anomalie, riconoscimenti = [] }) {
  * Chiede al data agent il briefing del mattino (POST /briefing), calcolato senza LLM.
  * All'LLM passa solo KPI e anomalie in testo compatto: grafico e pulizia vanno al front end.
  */
-async function prepara_briefing(segnaleRichiesta) {
+async function prepara_briefing(segnaleRichiesta, scenario) {
   const erroreGenerico = { grafico: null, pulizia: null, chiamateOpenAI: 0 };
 
   let risposta;
   try {
     risposta = await fetch(`${indirizzoDataAgent()}/briefing`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scenario }),
       signal: segnaleConTimeout(TIMEOUT_BRIEFING_MS, segnaleRichiesta),
     });
   } catch (errore) {
@@ -279,13 +282,13 @@ async function prepara_briefing(segnaleRichiesta) {
  * All'LLM passa solo il testo compatto dei controlli, già preparato dal data agent.
  * @param {{inizio: string, fine: string}} periodo - date nel formato AAAA-MM-GG
  */
-async function controlla_soglie({ inizio, fine }, segnaleRichiesta) {
+async function controlla_soglie({ inizio, fine }, segnaleRichiesta, scenario) {
   let risposta;
   try {
     risposta = await fetch(`${indirizzoDataAgent()}/soglie`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inizio, fine }),
+      body: JSON.stringify({ inizio, fine, scenario }),
       signal: segnaleConTimeout(TIMEOUT_BRIEFING_MS, segnaleRichiesta),
     });
   } catch (errore) {

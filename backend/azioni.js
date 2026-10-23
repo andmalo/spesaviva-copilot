@@ -156,14 +156,14 @@ function superamenti(controlli) {
  *   una chiamata al modello senza strumenti, con gli stessi tetti e controlli della chat
  * @param {(storico: Array, lingua: string, istruzioni: string) => Array} servizi.componiMessaggi
  *   prompt di sistema + memoria della sessione + lingua + istruzioni dell'azione
- * @param {string} servizi.dataRiferimento - "oggi" dello scenario (AAAA-MM-GG)
  */
-function creaAzioni({ chiamaModello, componiMessaggi, dataRiferimento }) {
-  const ieri = aIso(piuGiorni(daIso(dataRiferimento), -1));
+function creaAzioni({ chiamaModello, componiMessaggi }) {
+  // Ogni azione riceve lo scenario della demo: la data di "oggi" e il negozio vengono da lì
 
-  async function briefing({ lingua, storico, segnale }) {
+  async function briefing({ lingua, storico, segnale, scenario }) {
+    const ieri = aIso(piuGiorni(daIso(scenario.oggi), -1));
     const esito = nuovoEsito();
-    const dati = await STRUMENTI.prepara_briefing(segnale);
+    const dati = await STRUMENTI.prepara_briefing(segnale, scenario.id);
     esito.strumenti.push({ nome: "prepara_briefing", domanda: null });
     if (dati.grafico) esito.grafici.push(dati.grafico);
     esito.pulizia = dati.pulizia ?? null;
@@ -184,7 +184,7 @@ function creaAzioni({ chiamaModello, componiMessaggi, dataRiferimento }) {
       "e le procedure qui sotto, già calcolati dal codice: non aggiungere anomalie, cause o consigli che non ci sono.\n\n" +
       dati.testoPerLLM +
       (procedure.length ? `\n\nProcedure del manuale per le anomalie:\n\n${procedure.join("\n\n---\n\n")}` : "");
-    const { testo, token } = await chiamaModello(componiMessaggi(storico, lingua, istruzioni), segnale);
+    const { testo, token } = await chiamaModello(componiMessaggi(storico, lingua, istruzioni, scenario), segnale);
     esito.token = token;
 
     let finale = filtraFonti(esito, testo);
@@ -195,10 +195,10 @@ function creaAzioni({ chiamaModello, componiMessaggi, dataRiferimento }) {
     return { esito, periodo: { inizio: ieri, fine: ieri } };
   }
 
-  async function soglie({ lingua, storico, segnale }) {
+  async function soglie({ lingua, storico, segnale, scenario }) {
     const esito = nuovoEsito();
-    const periodo = ultimaSettimanaCompleta(dataRiferimento);
-    const r = await STRUMENTI.controlla_soglie(periodo, segnale);
+    const periodo = ultimaSettimanaCompleta(scenario.oggi);
+    const r = await STRUMENTI.controlla_soglie(periodo, segnale, scenario.id);
     esito.strumenti.push({ nome: "controlla_soglie", domanda: `dal ${periodo.inizio} al ${periodo.fine}` });
 
     const istruzioni =
@@ -206,16 +206,16 @@ function creaAzioni({ chiamaModello, componiMessaggi, dataRiferimento }) {
       "Scrivi un riassunto breve (al massimo 80 parole) dei risultati già calcolati qui sotto: per ogni controllo " +
       "di' se la soglia è stata superata oppure no, con valore e date. Non aggiungere valutazioni proprie, cause o consigli.\n\n" +
       r.testoPerLLM;
-    const { testo, token } = await chiamaModello(componiMessaggi(storico, lingua, istruzioni), segnale);
+    const { testo, token } = await chiamaModello(componiMessaggi(storico, lingua, istruzioni, scenario), segnale);
     esito.token = token;
     esito.risposta = togliDomandaFinale(testo);
     return { esito, periodo };
   }
 
-  async function report({ lingua, storico, segnale }) {
+  async function report({ lingua, storico, segnale, scenario }) {
     const esito = nuovoEsito();
-    const periodo = ultimaSettimanaCompleta(dataRiferimento);
-    const r = await STRUMENTI.controlla_soglie(periodo, segnale);
+    const periodo = ultimaSettimanaCompleta(scenario.oggi);
+    const r = await STRUMENTI.controlla_soglie(periodo, segnale, scenario.id);
     esito.strumenti.push({ nome: "controlla_soglie", domanda: `dal ${periodo.inizio} al ${periodo.fine}` });
     if (!r.dati?.kpi) throw new Error("dati della settimana non disponibili");
 
@@ -250,7 +250,7 @@ function creaAzioni({ chiamaModello, componiMessaggi, dataRiferimento }) {
         "Al massimo 120 parole.\n\n" +
         `Soglie superate:\n${elenco.map((s) => `- ${s.indicatore}: ${s.valore} (soglia ${s.soglia}), ${s.periodo}`).join("\n")}\n\n` +
         `Testi del manuale:\n\n${procedure.join("\n\n---\n\n")}`;
-      const { testo, token } = await chiamaModello(componiMessaggi([], "it", istruzioni), segnale);
+      const { testo, token } = await chiamaModello(componiMessaggi([], "it", istruzioni, scenario), segnale);
       esito.token = token;
       // Le fonti non vanno dentro la mail: si tolgono eventuali righe "Fonte ufficiale" scritte dal modello
       const azioniManuale = separaFonti(testo).testo
@@ -290,8 +290,8 @@ function creaAzioni({ chiamaModello, componiMessaggi, dataRiferimento }) {
    * Esegue un'azione diretta.
    * @returns {Promise<{esito: object, richiesta: string, rispostaPerMemoria: string}>}
    */
-  async function eseguiAzione(azione, { lingua, storico, segnale }) {
-    const { esito, periodo } = await funzioni[azione]({ lingua, storico, segnale });
+  async function eseguiAzione(azione, { lingua, storico, segnale, scenario }) {
+    const { esito, periodo } = await funzioni[azione]({ lingua, storico, segnale, scenario });
     const richiesta = etichettaAzione(azione, periodo, lingua);
     // In memoria va anche il testo del report, così si possono fare domande successive
     const rispostaPerMemoria = esito.report ? `Oggetto: ${esito.report.oggetto}\n\n${esito.report.corpo}` : esito.risposta;

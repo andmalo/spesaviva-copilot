@@ -1,8 +1,8 @@
-// Componente principale: tiene lo stato della chat, la lingua scelta e parla con il back end.
+// Componente principale: tiene lo stato della chat, la lingua e lo scenario scelti e parla con il back end.
 import { useMemo, useRef, useState } from 'react'
 import Sidebar from './components/Sidebar.jsx'
 import ChatWindow from './components/ChatWindow.jsx'
-import { CHIAVE_LINGUA, TIMEOUT_RICHIESTA_MS } from './config.js'
+import { CHIAVE_LINGUA, SCENARI, TIMEOUT_RICHIESTA_MS } from './config.js'
 import { LINGUE, LinguaContext, creaTraduttore, haTesto } from './i18n.js'
 
 // Identificativo progressivo dei messaggi, usato come key nelle liste React
@@ -25,6 +25,8 @@ export default function App() {
   const [inAttesa, setInAttesa] = useState(false)
   const [sessionId, setSessionId] = useState(() => crypto.randomUUID())
   const [lingua, setLinguaStato] = useState(linguaSalvata)
+  // Scenario della demo: all'avvio il primo della lista (lo stesso predefinito del back end)
+  const [scenario, setScenario] = useState(SCENARI[0])
 
   // Lingua e traduzioni condivise con tutti i componenti
   const contestoLingua = useMemo(() => {
@@ -60,7 +62,7 @@ export default function App() {
   /**
    * Invia una richiesta al back end e aggiunge alla chat la bolla dell'utente e la risposta.
    * @param {string} percorso - "/api/chat" oppure "/api/azioni/<azione>"
-   * @param {object} corpo - dati della richiesta (sessionId e lingua si aggiungono qui)
+   * @param {object} corpo - dati della richiesta (sessionId, lingua e scenario si aggiungono qui)
    * @param {string} testoUtente - testo della bolla dell'utente
    */
   async function richiedi(percorso, corpo, testoUtente) {
@@ -78,7 +80,7 @@ export default function App() {
       const risposta = await fetch(percorso, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...corpo, sessionId, lingua }),
+        body: JSON.stringify({ ...corpo, sessionId, lingua, scenario: scenario.id }),
         signal: controller.signal,
       })
 
@@ -131,11 +133,26 @@ export default function App() {
     setSessionId(crypto.randomUUID())
   }
 
+  // Cambio di scenario: nuova sessione e chat vuota (benvenuto e dati del negozio si aggiornano da soli)
+  function cambiaScenario(id) {
+    const nuovo = SCENARI.find((s) => s.id === id)
+    if (!nuovo || nuovo.id === scenario.id) return
+    nuovaConversazione()
+    setScenario(nuovo)
+  }
+
   return (
     <LinguaContext.Provider value={contestoLingua}>
       <div className="app">
-        <Sidebar onDomanda={invia} onAzione={eseguiAzione} inAttesa={inAttesa} />
-        <ChatWindow messaggi={messaggi} inAttesa={inAttesa} onInvia={invia} onNuovaConversazione={nuovaConversazione} />
+        <Sidebar onDomanda={invia} onAzione={eseguiAzione} inAttesa={inAttesa} scenario={scenario} />
+        <ChatWindow
+          messaggi={messaggi}
+          inAttesa={inAttesa}
+          onInvia={invia}
+          onNuovaConversazione={nuovaConversazione}
+          scenario={scenario}
+          onScenario={cambiaScenario}
+        />
       </div>
     </LinguaContext.Provider>
   )
