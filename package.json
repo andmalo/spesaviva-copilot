@@ -1,0 +1,12 @@
+{
+  "name": "spesaviva-store-manager-copilot",
+  "private": true,
+  "description": "SpesaViva Store Manager Copilot: installazione e avvio di tutti i servizi",
+  "scripts": {
+    "setup": "node avvia.mjs setup",
+    "start": "node avvia.mjs start"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}
