@@ -284,6 +284,28 @@ def kpi_periodo(df: pd.DataFrame, negozio: str, inizio: date, fine: date) -> dic
         "scontrini": int(scontrini),
         "scontrino_medio": round(vendite / scontrini, 2),
         "tasso_scarto": {r: round(float(righe[f"scarti_{r}"].sum() / righe[f"vendite_{r}"].sum() * 100), 2) for r in REPARTI},
+        "eccedenze_donate_kg": round(float(righe["eccedenze_donate_kg"].sum()), 1),
+    }
+
+
+def ultima_settimana_completa(ieri: date) -> tuple[date, date]:
+    """Ultima settimana completa (lunedì-domenica) che finisce entro ieri."""
+    domenica = ieri if ieri.weekday() == 6 else ieri - timedelta(days=ieri.weekday() + 1)
+    return domenica - timedelta(days=6), domenica
+
+
+def eccedenze_donate(df: pd.DataFrame, negozio: str, ieri: date) -> dict:
+    """Chilogrammi di eccedenze donate ieri e nell'ultima settimana completa (solo kg, nessuna conversione)."""
+    righe = df[df["negozio"] == negozio]
+    giorni = righe["data"].dt.date
+    dal, al = ultima_settimana_completa(ieri)
+    settimana = righe[(giorni >= dal) & (giorni <= al)]
+    return {
+        "ieri": round(float(righe.loc[giorni == ieri, "eccedenze_donate_kg"].sum()), 1),
+        "settimana": round(float(settimana["eccedenze_donate_kg"].sum()), 1),
+        "settimana_dal": dal.isoformat(),
+        "settimana_al": al.isoformat(),
+        "giorni_con_dati": int(settimana["data"].dt.date.nunique()),
     }
 
 
@@ -300,6 +322,7 @@ def testo_kpi(kpi: dict) -> str:
         f"(scostamento {_numero_it(kpi['scostamento_pct'])}%)",
         f"- scontrini {intero(kpi['scontrini'])}, scontrino medio {euro(kpi['scontrino_medio'])}",
         f"- tasso di scarto per reparto: {scarti}",
+        f"- eccedenze donate: {_numero_it(kpi['eccedenze_donate_kg'], 1)} kg",
     ]
     return "\n".join(righe)
 
@@ -614,6 +637,7 @@ def prepara_briefing(df: pd.DataFrame, negozio: str, oggi: date, percorso_grafic
         "referenze_in_rottura": int(r["referenze_in_rottura"]),
         "consegne_in_ritardo": int(r["consegne_in_ritardo"]),
         "tasso_assenza_pct": round(float(r["ore_assenza"] / r["ore_pianificate"] * 100), 2),
+        "eccedenze_donate_kg": eccedenze_donate(df, negozio, ieri),
     }
 
     # Controlli delle soglie: le stesse regole di controlla_soglie, sulle serie che arrivano fino a ieri.

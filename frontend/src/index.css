@@ -840,6 +840,29 @@ button:disabled {
   background: var(--dati-sfondo);
 }
 
+/* Eccedenze donate nel briefing: riga con icona (un cuore, diversa da quella degli scarti) */
+.eccedenze {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio-piccolo);
+  font-size: 13px;
+}
+
+.eccedenze__icona {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--verde);
+}
+
+.eccedenze__etichetta {
+  font-weight: 600;
+}
+
 /* Menu dello scenario della demo nell'intestazione */
 .selettore-scenario {
   display: inline-flex;

@@ -78,6 +78,8 @@ const TESTI = {
     erroreConnessione: 'Non riesco a contattare il server. Controlla che il servizio sia avviato e riprova tra poco.',
     erroreTimeout: 'La risposta sta impiegando troppo tempo e ho interrotto la richiesta. Riprova tra poco, magari con una domanda più semplice.',
     erroreServer: 'Si è verificato un problema nel preparare la risposta. Riprova tra poco.',
+    eccedenzeEtichetta: 'Eccedenze donate',
+    eccedenzeValore: '{ieri} kg ieri · {settimana} kg nella settimana dal {dal} al {al}',
   },
 
   en: {
@@ -155,6 +157,8 @@ const TESTI = {
     errore_sessione_non_valida: 'Invalid session: start a new conversation.',
     errore_azione_sconosciuta: 'This action is not available.',
     errore_scenario_non_valido: 'Invalid demo scenario: choose one from the menu.',
+    eccedenzeEtichetta: 'Surplus food donated',
+    eccedenzeValore: '{ieri} kg yesterday · {settimana} kg in the week {dal} – {al}',
   },
 }
 
@@ -181,13 +185,14 @@ export function haTesto(lingua, chiave) {
  * Data AAAA-MM-GG nella lingua scelta: "Martedì 1 settembre 2026" / "Tuesday 1 September 2026".
  * @param {number} spostamento - giorni da aggiungere (-1 = il giorno prima)
  * @param {boolean} conGiorno - se mostrare il giorno della settimana
+ * @param {boolean} conAnno - se mostrare l'anno
  */
-export function formattaData(iso, lingua, { spostamento = 0, conGiorno = false } = {}) {
+export function formattaData(iso, lingua, { spostamento = 0, conGiorno = false, conAnno = true } = {}) {
   const [anno, mese, giorno] = iso.split('-').map(Number)
   // Mezzogiorno in ora locale: nessun problema con l'ora legale
   const data = new Date(anno, mese - 1, giorno + spostamento, 12)
   const testo = data.toLocaleDateString(lingua === 'en' ? 'en-GB' : 'it-IT', {
-    ...(conGiorno && { weekday: 'long' }), day: 'numeric', month: 'long', year: 'numeric',
+    ...(conGiorno && { weekday: 'long' }), day: 'numeric', month: 'long', ...(conAnno && { year: 'numeric' }),
   })
   return testo.charAt(0).toUpperCase() + testo.slice(1)
 }

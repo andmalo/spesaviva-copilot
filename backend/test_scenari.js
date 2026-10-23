@@ -127,6 +127,14 @@ async function main() {
     console.log("Verifiche:");
     verifica(`dati del briefing di ieri (${d.ieriIso})`, b.testoPerLLM.includes(d.ieriIso) || b.testoPerLLM.includes(String(d.ieri.getDate())));
     ATTESE[scenario.id](b, s);
+    // Eccedenze donate: kg calcolati a mano dal CSV (ultima settimana completa)
+    const kgAttesi = { tranquilla: [31, 160.9], caldo: [20.6, 134.4], fornitore: [24, 147.1] }[scenario.id];
+    console.log(`Eccedenze donate: ${JSON.stringify(b.eccedenze)}`);
+    verifica(`eccedenze nel briefing: ieri ${kgAttesi[0]} kg, settimana ${kgAttesi[1]} kg`,
+      b.eccedenze?.ieri === kgAttesi[0] && b.eccedenze?.settimana === kgAttesi[1]);
+    verifica("riga delle eccedenze nel testo per l'LLM", b.testoPerLLM.includes("eccedenze donate (in kg)"));
+    const kgReport = String(kgAttesi[1]).replace(".", ",");
+    verifica(`riga delle eccedenze nei KPI del report (${kgReport} kg)`, s.dati.testoKpi.includes(`eccedenze donate: ${kgReport} kg`));
   }
 
   console.log(`\n${"=".repeat(80)}\nScenari non validi\n${"=".repeat(80)}`);

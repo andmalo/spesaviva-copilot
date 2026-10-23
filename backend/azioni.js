@@ -73,7 +73,7 @@ function etichettaAzione(azione, periodo, lingua) {
 // Risultato vuoto con la stessa forma della risposta di /api/chat
 const nuovoEsito = () => ({
   risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null,
-  riconoscimenti: [], bozza_riconoscimento: null, report: null, token: 0,
+  riconoscimenti: [], bozza_riconoscimento: null, report: null, eccedenze_donate: null, token: 0,
 });
 
 // Aggiunge le sezioni consultate senza doppioni
@@ -168,6 +168,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
     if (dati.grafico) esito.grafici.push(dati.grafico);
     esito.pulizia = dati.pulizia ?? null;
     esito.riconoscimenti = dati.riconoscimenti ?? [];
+    esito.eccedenze_donate = dati.eccedenze ?? null;
 
     // Una ricerca nel manuale per ogni anomalia, con la sua domanda_procedura (senza doppioni)
     const domande = [...new Set((dati.anomalie ?? []).map((a) => a.domanda_procedura).filter(Boolean))];

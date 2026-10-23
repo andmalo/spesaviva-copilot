@@ -3,6 +3,7 @@ import ReactMarkdown from 'react-markdown'
 import ToolBadges from './ToolBadges.jsx'
 import Riconoscimenti from './Riconoscimenti.jsx'
 import ReportMail from './ReportMail.jsx'
+import Eccedenze from './Eccedenze.jsx'
 import { useTesti } from '../i18n.js'
 
 // Il markdown scritto dall'LLM non deve far caricare nulla dall'esterno:
@@ -70,7 +71,7 @@ export default function Message({ messaggio }) {
   // Risposta dell'assistente con strumenti, testo, report, riconoscimenti, grafici, sezioni e pulizia
   const {
     risposta, strumenti = [], grafici = [], sezioni_consultate = [], pulizia,
-    riconoscimenti = [], bozza_riconoscimento: bozza = null, report = null,
+    riconoscimenti = [], bozza_riconoscimento: bozza = null, report = null, eccedenze_donate: eccedenze = null,
   } = messaggio.dati
 
   return (
@@ -88,6 +89,9 @@ export default function Message({ messaggio }) {
 
         {/* Report per l'Area Manager: riquadro in stile mail, sempre in italiano */}
         {report && <ReportMail report={report} />}
+
+        {/* Eccedenze donate del briefing: chilogrammi di ieri e dell'ultima settimana completa */}
+        {eccedenze && <Eccedenze eccedenze={eccedenze} />}
 
         {/* Riconoscimenti del briefing, se presenti: riquadro verde chiaro, separato dalle anomalie */}
         {riconoscimenti.length > 0 && <Riconoscimenti riconoscimenti={riconoscimenti} bozza={bozza} />}

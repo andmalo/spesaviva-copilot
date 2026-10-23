@@ -153,6 +153,12 @@ function esitoConsecutivo({ anomalia, giorniSopra, giorniPerAnomalia, sopraIeri,
   return `sotto ${nomeLimite}, non è un'anomalia`;
 }
 
+// Riga delle eccedenze donate per l'LLM: solo chilogrammi, nessuna conversione
+function righeEccedenze(e) {
+  if (!e) return [];
+  return [`- eccedenze donate (in kg): ieri ${numero(e.ieri)} kg; nell'ultima settimana completa, dal ${e.settimana_dal} al ${e.settimana_al}, ${numero(e.settimana)} kg`];
+}
+
 // Trasforma KPI, stato dei controlli e anomalie del briefing in un testo compatto per l'LLM.
 // Lo stato di ogni controllo è già deciso dal codice: l'LLM non deve confrontare valori e soglie.
 function testoBriefing({ kpi, controlli, anomalie, riconoscimenti = [] }) {
@@ -161,6 +167,7 @@ function testoBriefing({ kpi, controlli, anomalie, riconoscimenti = [] }) {
     `- vendite ${euro(kpi.vendite)}, obiettivo ${euro(kpi.obiettivo)}, scostamento ${numero(kpi.scostamento_pct)}%`,
     `- scontrini ${kpi.scontrini}, scontrino medio ${euro(kpi.scontrino_medio)}`,
     `- consegne in ritardo ieri ${kpi.consegne_in_ritardo}, tasso di assenza del giorno ${numero(kpi.tasso_assenza_pct)}%`,
+    ...righeEccedenze(kpi.eccedenze_donate_kg),
     "",
     "Controlli delle soglie del manuale (esito già calcolato, da riportare così com'è):",
   ];
@@ -271,6 +278,8 @@ async function prepara_briefing(segnaleRichiesta, scenario) {
     riconoscimenti: Array.isArray(dati.riconoscimenti) ? dati.riconoscimenti : [],
     // Anomalie complete (con domanda_procedura): servono all'azione diretta del briefing
     anomalie: Array.isArray(dati.anomalie) ? dati.anomalie : [],
+    // Eccedenze donate (kg di ieri e dell'ultima settimana completa): riga a parte nel front end
+    eccedenze: dati.kpi?.eccedenze_donate_kg ?? null,
     grafico: dati.grafico || null,
     pulizia: dati.pulizia ?? null,
     chiamateOpenAI: 0, // il briefing è calcolato solo con pandas

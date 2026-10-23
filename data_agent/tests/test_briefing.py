@@ -157,3 +157,38 @@ def test_briefing_usa_controlla_soglie_senza_cambiare_risultati(dati_puliti):
         ("consegne_in_ritardo", "settimana in corso, 9 marzo 2026"),
         ("consegne_in_ritardo", "settimana precedente, dal 2 marzo 2026 all'8 marzo 2026"),
     ]
+
+
+# --- Eccedenze donate: valori sommati a mano dal CSV (solo kg) ---------------
+
+from briefing import eccedenze_donate, kpi_periodo, ultima_settimana_completa  # noqa: E402
+from briefing import testo_kpi as descrivi_kpi  # noqa: E402
+
+
+@pytest.mark.parametrize("negozio, oggi, ieri_kg, dal, al, settimana_kg", [
+    # 24-30 agosto 2026: 23,2 + 14,9 + 31,6 + 19,3 + 26,7 + 32,6 + 12,6
+    ("NEG01", date(2026, 9, 1), 31.0, "2026-08-24", "2026-08-30", 160.9),
+    # 7-13 luglio 2025: 18,2 + 12,6 + 21,8 + 12,2 + 24,4 + 16,4 + 28,8
+    ("NEG01", date(2025, 7, 17), 20.6, "2025-07-07", "2025-07-13", 134.4),
+    # 2-8 marzo 2026: 13,8 + 12,7 + 27,9 + 25,5 + 20,3 + 25,4 + 21,5
+    ("NEG03", date(2026, 3, 10), 24.0, "2026-03-02", "2026-03-08", 147.1),
+])
+def test_eccedenze_donate_nel_briefing(dati_puliti, negozio, oggi, ieri_kg, dal, al, settimana_kg):
+    e = prepara_briefing(dati_puliti.copy(), negozio, oggi)["kpi"]["eccedenze_donate_kg"]
+    assert e == {"ieri": ieri_kg, "settimana": settimana_kg, "settimana_dal": dal, "settimana_al": al,
+                 "giorni_con_dati": 7}
+
+
+def test_ultima_settimana_completa_se_ieri_e_domenica():
+    # Domenica 30 agosto 2026: la settimana che finisce ieri è già completa
+    assert ultima_settimana_completa(date(2026, 8, 30)) == (date(2026, 8, 24), date(2026, 8, 30))
+    # Sabato 29 agosto 2026: l'ultima completa è quella precedente
+    assert ultima_settimana_completa(date(2026, 8, 29)) == (date(2026, 8, 17), date(2026, 8, 23))
+
+
+def test_eccedenze_settimana_uguali_a_quelle_del_report(dati_puliti):
+    # Il report usa i KPI dell'ultima settimana completa: stessi kg del briefing
+    kpi = kpi_periodo(dati_puliti, "NEG01", date(2026, 8, 24), date(2026, 8, 30))
+    assert kpi["eccedenze_donate_kg"] == 160.9
+    assert "- eccedenze donate: 160,9 kg" in descrivi_kpi(kpi)
+    assert eccedenze_donate(dati_puliti, "NEG01", date(2026, 8, 31))["settimana"] == kpi["eccedenze_donate_kg"]
