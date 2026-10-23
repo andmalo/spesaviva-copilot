@@ -86,3 +86,26 @@ def test_settimana_influenzale_neg02(dati_puliti):
     s = dati_puliti[(dati_puliti["negozio"] == "NEG02") & dati_puliti["data"].between("2026-01-12", "2026-01-18")]
     tasso_assenze = s["ore_assenza"].sum() / s["ore_pianificate"].sum() * 100
     assert tasso_assenze == pytest.approx(15.0, abs=0.5)
+
+
+# ---------------------------------------------------------------------------
+# Colonna "settimana": solo settimane complete (lunedì-domenica, 7 giorni)
+# ---------------------------------------------------------------------------
+
+def test_colonna_settimana_solo_settimane_complete(dati_puliti):
+    d = dati_puliti[dati_puliti["settimana"].notna()]
+    # ogni valore è un lunedì
+    assert (d["settimana"].dt.weekday == 0).all()
+    # ogni settimana valorizzata ha esattamente 7 giorni per quel negozio
+    giorni = d.groupby(["negozio", "settimana"])["data"].nunique()
+    assert (giorni == 7).all()
+    # ogni riga sta nella sua settimana
+    assert ((d["data"] - d["settimana"]).dt.days.between(0, 6)).all()
+
+
+def test_settimana_in_corso_esclusa(dati_puliti):
+    neg01 = dati_puliti[dati_puliti["negozio"] == "NEG01"]
+    # lunedì 31 agosto 2026 è l'unico giorno della sua settimana nei dati: settimana vuota
+    assert neg01.loc[neg01["data"] == "2026-08-31", "settimana"].isna().all()
+    # la settimana prima (24-30 agosto) è completa
+    assert (neg01.loc[neg01["data"] == "2026-08-30", "settimana"] == "2026-08-24").all()

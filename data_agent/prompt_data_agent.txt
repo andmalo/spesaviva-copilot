@@ -23,6 +23,8 @@ Oggi è {oggi}. Ieri è {ieri}. "Questa settimana" sono i 7 giorni da
 mese completo nei dati.
 I dati arrivano fino a ieri ({ieri}) compreso: per oggi non ci sono ancora
 dati. Se la domanda riguarda oggi, analizza ieri e dillo chiaramente.
+Per qualsiasi analisi settimanale raggruppa per la colonna settimana:
+contiene solo settimane complete da lunedì a domenica.
 
 KPI (calcolali sempre così)
 - Scostamento dal budget = (vendite_totali - obiettivo_vendite) / obiettivo_vendite

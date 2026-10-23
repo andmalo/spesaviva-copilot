@@ -14,7 +14,9 @@ const cors = require("cors");
 const OpenAI = require("openai");
 const { rateLimit } = require("express-rate-limit");
 
-const { STRUMENTI, STRUMENTI_SENZA_PARAMETRI, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent } = require("./strumenti");
+const {
+  STRUMENTI, STRUMENTI_SENZA_PARAMETRI, STRUMENTI_CON_PERIODO, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent,
+} = require("./strumenti");
 const { creaClient } = require("./rag/config");
 
 // ---------------------------------------------------------------------------
@@ -254,6 +256,18 @@ function leggiDomanda(argomentiJson) {
   return null;
 }
 
+// Legge inizio e fine del periodo (formato AAAA-MM-GG) per controlla_soglie; null se non validi
+function leggiPeriodo(argomentiJson) {
+  try {
+    const { inizio, fine } = JSON.parse(argomentiJson);
+    const formato = /^\d{4}-\d{2}-\d{2}$/;
+    if (formato.test(inizio) && formato.test(fine)) return { inizio, fine };
+  } catch {
+    // JSON non valido: gestito dal chiamante
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Ciclo di function calling
 // ---------------------------------------------------------------------------
@@ -373,25 +387,35 @@ async function rispondi(storico, messaggio, segnale) {
 
     for (const chiamata of chiamate) {
       const nome = chiamata.function?.name;
-      // Gli strumenti senza parametri (prepara_briefing) non ricevono la domanda
+      // Parametri per tipo di strumento: nessuno (prepara_briefing), un periodo (controlla_soglie)
+      // oppure la domanda (analizza_dati, cerca_procedure)
       const senzaParametri = STRUMENTI_SENZA_PARAMETRI.has(nome);
-      const domanda = senzaParametri ? null : leggiDomanda(chiamata.function?.arguments);
+      const conPeriodo = STRUMENTI_CON_PERIODO.has(nome);
+      const periodo = conPeriodo ? leggiPeriodo(chiamata.function?.arguments) : null;
+      const domanda = senzaParametri || conPeriodo ? null : leggiDomanda(chiamata.function?.arguments);
       let contenuto;
 
       if (!STRUMENTI[nome]) {
         contenuto = `Errore: lo strumento "${nome}" non esiste.`;
-      } else if (!senzaParametri && !domanda) {
+      } else if (conPeriodo && !periodo) {
+        contenuto = "Errore: inizio e fine devono essere date nel formato AAAA-MM-GG.";
+      } else if (!senzaParametri && !conPeriodo && !domanda) {
         contenuto = "Errore: manca il parametro obbligatorio \"domanda\".";
       } else {
         controllaAnnullamento();
-        // Prenoto le chiamate OpenAI che lo strumento può fare (caso peggiore):
-        // 5 per il data agent, 1 embedding per la ricerca, nessuna per il briefing (solo pandas)
-        const chiamateStrumento = { analizza_dati: CHIAMATE_MASSIME_DATA_AGENT, cerca_procedure: 1, prepara_briefing: 0 }[nome];
+        // Prenoto le chiamate OpenAI che lo strumento può fare (caso peggiore): 5 per il data agent,
+        // 1 embedding per la ricerca, nessuna per briefing e controllo delle soglie (solo pandas)
+        const chiamateStrumento = {
+          analizza_dati: CHIAMATE_MASSIME_DATA_AGENT, cerca_procedure: 1, prepara_briefing: 0, controlla_soglie: 0,
+        }[nome];
         if (!prenotaChiamate(chiamateStrumento)) {
           contenuto = "Errore: raggiunto il numero massimo di chiamate consentite, lo strumento non è stato eseguito. Avvisa lo Store Manager.";
         } else {
-          esito.strumenti.push({ nome, domanda });
-          const risultato = senzaParametri ? await STRUMENTI[nome](segnale) : await STRUMENTI[nome](domanda, segnale);
+          // Per il front end: la domanda passata, oppure il periodo controllato
+          esito.strumenti.push({ nome, domanda: periodo ? `dal ${periodo.inizio} al ${periodo.fine}` : domanda });
+          const risultato = senzaParametri
+            ? await STRUMENTI[nome](segnale)
+            : await STRUMENTI[nome](periodo ?? domanda, segnale);
           controllaAnnullamento();
           contenuto = risultato.testoPerLLM;
 

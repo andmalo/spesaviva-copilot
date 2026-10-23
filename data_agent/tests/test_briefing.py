@@ -114,3 +114,46 @@ def test_un_solo_riconoscimento_in_tutto_il_dataset(dati_puliti):
 def test_nessun_riconoscimento_senza_dati_sufficienti(dati_puliti):
     # Agosto e settembre 2025 non hanno gli stessi mesi dell'anno prima (i dati partono da settembre 2024)
     assert controlla_miglioramenti(dati_puliti, "NEG01", pd.Period("2025-09", freq="M")) == []
+
+
+# ---------------------------------------------------------------------------
+# controlla_soglie: le regole del briefing su un periodo qualsiasi
+# ---------------------------------------------------------------------------
+
+# testo_soglie si importa con un altro nome: pytest raccoglierebbe come test
+# qualsiasi funzione il cui nome inizia con "test"
+from briefing import controlla_soglie  # noqa: E402
+from briefing import testo_soglie as descrivi_soglie  # noqa: E402
+
+
+def test_soglie_agosto_2026_trova_la_settimana_con_3_ritardi(dati_puliti):
+    esito = controlla_soglie(dati_puliti, "NEG01", date(2026, 8, 1), date(2026, 8, 31))
+    raggiunte = [(w["lunedi"], w["consegne_in_ritardo"]) for w in esito["settimane"] if w["consegne_in_ritardo"] >= 3]
+    assert raggiunte == [(date(2026, 8, 10), 3)]
+    # la settimana del 31 agosto (solo lunedì nei dati) è segnata come non completa
+    assert esito["settimane"][-1]["completa"] is False
+    assert "SOGLIA RAGGIUNTA" in descrivi_soglie(esito)
+
+
+def test_soglie_ondata_di_caldo_luglio_2025(dati_puliti):
+    esito = controlla_soglie(dati_puliti, "NEG01", date(2025, 7, 7), date(2025, 7, 20))
+    lunghi = [(e["dal"], e["giorni"]) for e in esito["scarti"]["ortofrutta"] if e["giorni"] >= 3]
+    assert (date(2025, 7, 12), 5) in lunghi
+    assert esito["scarti_oltre_doppio"]["ortofrutta"]  # almeno un giorno oltre il 10%
+
+
+def test_soglie_fornitore_in_crisi_neg03(dati_puliti):
+    esito = controlla_soglie(dati_puliti, "NEG03", date(2026, 3, 1), date(2026, 3, 15))
+    episodi = [(e["dal"], e["al"]) for e in esito["rotture"]]
+    assert (date(2026, 3, 4), date(2026, 3, 5)) in episodi
+    assert (date(2026, 3, 9), date(2026, 3, 11)) in episodi
+    assert all(w["consegne_in_ritardo"] >= 3 for w in esito["settimane"])
+
+
+def test_briefing_usa_controlla_soglie_senza_cambiare_risultati(dati_puliti):
+    # Il briefing del 10 marzo 2026 (NEG03) resta quello verificato a mano
+    b = prepara_briefing(dati_puliti.copy(), "NEG03", date(2026, 3, 10))
+    assert [(a["tipo"], a["periodo"]) for a in b["anomalie"]] == [
+        ("consegne_in_ritardo", "settimana in corso, 9 marzo 2026"),
+        ("consegne_in_ritardo", "settimana precedente, dal 2 marzo 2026 all'8 marzo 2026"),
+    ]

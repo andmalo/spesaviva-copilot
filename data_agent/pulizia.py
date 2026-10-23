@@ -134,6 +134,14 @@ def pulisci_dati(df):
         report[f"{colonna}_stimati"] = int(stimabili.sum())
     report["righe_scarti_stimati"] = int(df["scarti_stimati"].sum())
 
+    # i) SETTIMANA: lunedì di inizio, solo per le settimane complete (lunedì-domenica,
+    #    7 giorni presenti per quel negozio); vuota (NaT) per le settimane parziali.
+    #    Così un groupby sulla colonna esclude da solo le settimane incomplete,
+    #    come quella in corso quando ieri è lunedì.
+    lunedi = (df["data"] - pd.to_timedelta(df["data"].dt.weekday, unit="D")).dt.normalize()
+    giorni = df.groupby([df["negozio"], lunedi])["data"].transform("nunique")
+    df["settimana"] = lunedi.where(giorni == 7)
+
     return df, report
 
 

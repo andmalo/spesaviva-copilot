@@ -37,7 +37,7 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from briefing import prepara_briefing
+from briefing import controlla_soglie, prepara_briefing, testo_soglie
 from grafici import disegna_grafico, estrai_blocco_grafico
 from pulizia import pulisci_dati, riepilogo_pulizia
 
@@ -178,6 +178,14 @@ app.mount("/charts", StaticFiles(directory=CARTELLA_GRAFICI), name="charts")
 
 class Domanda(BaseModel):
     domanda: str
+
+
+class Periodo(BaseModel):
+    inizio: str  # AAAA-MM-GG
+    fine: str    # AAAA-MM-GG
+
+
+MAX_GIORNI_PERIODO = 400  # periodo massimo per il controllo delle soglie
 
 
 def costruisci_prompt() -> str:
@@ -333,6 +341,36 @@ def briefing(request: Request):
         "grafico": url_grafico,
         "pulizia": stato["riepilogo_pulizia"],
     }
+
+
+@app.post("/soglie")
+def soglie(periodo: Periodo):
+    """Controllo delle soglie del manuale sul periodo indicato (solo pandas, nessun LLM).
+    Restituisce il testo compatto per l'LLM e i risultati strutturati."""
+    try:
+        inizio = date.fromisoformat(periodo.inizio.strip())
+        fine = date.fromisoformat(periodo.fine.strip())
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Date non valide: usa il formato AAAA-MM-GG.")
+
+    # I dati arrivano fino a ieri: la fine del periodo non può andare oltre
+    ieri = date.fromisoformat(os.getenv("DATA_RIFERIMENTO")) - timedelta(days=1)
+    nota = ""
+    if fine > ieri:
+        fine, nota = ieri, f"I dati arrivano fino a ieri: il periodo è stato limitato al {ieri.isoformat()}."
+    if inizio > fine:
+        raise HTTPException(status_code=400, detail="La data di inizio è successiva alla data di fine (o a ieri).")
+    if (fine - inizio).days > MAX_GIORNI_PERIODO:
+        raise HTTPException(status_code=400, detail=f"Periodo troppo lungo: al massimo {MAX_GIORNI_PERIODO} giorni.")
+
+    try:
+        esito = controlla_soglie(nuova_copia_dati(), os.getenv("NEGOZIO_UTENTE"), inizio, fine)
+    except Exception as errore:
+        logger.error("Controllo delle soglie non riuscito: %s", type(errore).__name__)
+        raise HTTPException(status_code=500, detail=f"Errore interno nel controllo delle soglie ({type(errore).__name__}).")
+
+    testo = testo_soglie(esito) + ("\n" + nota if nota else "")
+    return {"testo": testo, "esito": esito}
 
 
 if __name__ == "__main__":

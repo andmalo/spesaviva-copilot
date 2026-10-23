@@ -272,10 +272,52 @@ async function prepara_briefing(segnaleRichiesta) {
   };
 }
 
+/**
+ * Verifica le soglie del manuale nel periodo indicato (POST /soglie del data agent), senza LLM.
+ * All'LLM passa solo il testo compatto dei controlli, già preparato dal data agent.
+ * @param {{inizio: string, fine: string}} periodo - date nel formato AAAA-MM-GG
+ */
+async function controlla_soglie({ inizio, fine }, segnaleRichiesta) {
+  let risposta;
+  try {
+    risposta = await fetch(`${indirizzoDataAgent()}/soglie`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ inizio, fine }),
+      signal: segnaleConTimeout(TIMEOUT_BRIEFING_MS, segnaleRichiesta),
+    });
+  } catch (errore) {
+    console.error(`[controlla_soglie] data agent non raggiungibile (${errore.name})`);
+    return {
+      testoPerLLM: "Errore: il controllo delle soglie non è disponibile. Avvisa lo Store Manager e non dire se le soglie sono superate.",
+      chiamateOpenAI: 0,
+    };
+  }
+
+  if (!risposta.ok) {
+    let dettaglio = "errore sconosciuto";
+    try {
+      const corpo = await risposta.json();
+      if (typeof corpo.detail === "string") dettaglio = corpo.detail;
+    } catch {
+      // corpo non leggibile: resta il messaggio generico
+    }
+    console.error(`[controlla_soglie] il data agent ha risposto con stato ${risposta.status}`);
+    return { testoPerLLM: `Errore nel controllo delle soglie: ${dettaglio}`, chiamateOpenAI: 0 };
+  }
+
+  const dati = await risposta.json();
+  return { testoPerLLM: dati.testo, chiamateOpenAI: 0 }; // solo pandas, nessuna chiamata a OpenAI
+}
+
 // Mappa nome dello strumento -> funzione, usata dal ciclo di function calling
-const STRUMENTI = { cerca_procedure, analizza_dati, prepara_briefing };
+const STRUMENTI = { cerca_procedure, analizza_dati, prepara_briefing, controlla_soglie };
 
 // Strumenti che non ricevono il parametro "domanda"
 const STRUMENTI_SENZA_PARAMETRI = new Set(["prepara_briefing"]);
+// Strumenti che ricevono un periodo (inizio e fine) invece della domanda
+const STRUMENTI_CON_PERIODO = new Set(["controlla_soglie"]);
 
-module.exports = { STRUMENTI, STRUMENTI_SENZA_PARAMETRI, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent };
+module.exports = {
+  STRUMENTI, STRUMENTI_SENZA_PARAMETRI, STRUMENTI_CON_PERIODO, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent,
+};

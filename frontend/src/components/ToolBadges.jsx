@@ -5,6 +5,7 @@ const STRUMENTI = {
   analizza_dati: { etichetta: 'Dati del negozio', classe: 'badge--dati' },
   cerca_procedure: { etichetta: 'Manuale operativo', classe: 'badge--manuale' },
   prepara_briefing: { etichetta: 'Briefing', classe: 'badge--dati' },
+  controlla_soglie: { etichetta: 'Soglie del manuale', classe: 'badge--dati' },
 }
 
 export default function ToolBadges({ strumenti }) {

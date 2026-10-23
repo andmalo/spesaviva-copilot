@@ -52,5 +52,31 @@
       },
       "strict": true
     }
+  },
+  {
+    "type": "function",
+    "function": {
+      "name": "controlla_soglie",
+      "description": "Verifica se nel periodo indicato sono state superate le soglie del manuale su scarti, prodotti esauriti, consegne in ritardo e assenze, alla granularità prevista dal manuale. Usalo quando la domanda riguarda una soglia, una segnalazione all'Area Manager o se un valore è 'troppo alto'. Restituisce per ogni controllo valore, soglia, periodo ed esito.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "inizio": {
+            "type": "string",
+            "description": "Primo giorno del periodo, formato AAAA-MM-GG"
+          },
+          "fine": {
+            "type": "string",
+            "description": "Ultimo giorno del periodo, formato AAAA-MM-GG"
+          }
+        },
+        "required": [
+          "inizio",
+          "fine"
+        ],
+        "additionalProperties": false
+      },
+      "strict": true
+    }
   }
 ]

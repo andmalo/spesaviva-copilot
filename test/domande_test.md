@@ -23,7 +23,7 @@
 | 19 | Le consegne in ritardo sono aumentate: quante sono state nell'ultimo mese e come devo segnalarlo all'Area Manager? | ENTRAMBI |
 | 20 | Preparami il briefing di stamattina: com'è andata ieri, cosa c'è di anomalo e cosa devo fare. | ENTRAMBI |
 
-## Risultati
+## Risultati – 22 ottobre 2026 (primo test)
 
 | N. | Strumento usato | Corretto (sì/no) | Note |
 |---|---|---|---|
@@ -49,3 +49,34 @@
 | 20 | prepara_briefing | sì | KPI e controlli corretti, nessuna anomalia, riconoscimento panetteria con bozza |
 
 Esito del test del 22 ottobre 2026 (gpt-4.1-mini): 14 corrette, 3 parziali, 3 sbagliate.
+
+## Risultati – 23 ottobre 2026 (dopo controlla_soglie e colonna settimana)
+
+Ogni domanda in una sessione nuova, gpt-4.1-mini per orchestratore e data agent.
+
+| N. | Strumento usato | Corretto (sì/parziale/no) | Note |
+|---|---|---|---|
+| 1 | cerca_procedure | sì | Procedura completa, numero assistenza 000 000 401; sezioni mostrate: solo le 2 usate |
+| 2 | cerca_procedure | sì | Completa |
+| 3 | cerca_procedure | sì | Completa, una sola sezione mostrata |
+| 4 | cerca_procedure | sì | Completa |
+| 5 | cerca_procedure | sì | Ora comprende anche i surgelati; sezioni: guasto frigo e tecnico frigo |
+| 6 | cerca_procedure | sì | Completa, una sola sezione mostrata |
+| 7 | cerca_procedure | sì | Completa |
+| 8 | cerca_procedure | sì | Ora completa: cosa si può donare (anche TMC superato), ritiro, registrazione, 2 ritiri saltati |
+| 9 | analizza_dati | sì | Circa -27.240 € (-2,94%) |
+| 10 | analizza_dati | sì | 24,36 € contro 25,02 € (media degli altri negozi); grafico |
+| 11 | analizza_dati | **no** | Accetta la premessa falsa ("diminuzione delle vendite"): le vendite sono salite dell'1,38%. Nel test precedente la premessa era stata corretta |
+| 12 | analizza_dati | sì | Ortofrutta 5,68%, panetteria 4,90%, freschi 2,45%; grafico |
+| 13 | analizza_dati | sì | 96.702 € contro 96.806 € (stabile); numeri non più inventati |
+| 14 | analizza_dati | **no** | Numeri sbagliati (ortofrutta "2,45%", panetteria "1,98%"): i tassi veri di NEG01 sono 5,68%, 4,90%, 2,45%. Nella ripetizione precedente la stessa domanda era corretta (3,55% contro 3,71%) |
+| 15 | analizza_dati | parziale | 11 giorni con ritardi e 92 giorni nel periodo sono esatti, ma conta come "rottura" ogni giorno con almeno una referenza esaurita (cioè tutti): non risponde a "più rotture". Correlazione vera 0,18 |
+| 16 | analizza_dati | sì | Usa le ultime 4 settimane complete: nessun calo legato alle assenze (corretto) |
+| 17 | analizza_dati → cerca_procedure | parziale | Euro +2,53% e tasso da 6,07% a 5,88%, procedura corretta; ma "non risulta che la soglia del 7% sia stata superata" è impreciso (superata il 30 e 31 agosto, non per 3 giorni) e non usa controlla_soglie |
+| 18 | analizza_dati → cerca_procedure | parziale | -2,06% e -3,36% la settimana prima, corretti; non attribuisce più cause inventate; "il manuale non prevede azioni specifiche" corretto. Ma devia sugli scarti e chiude con un consiglio ("Ti suggerisco di verificare…") |
+| 19 | analizza_dati → controlla_soglie → cerca_procedure | sì | 4 ritardi ad agosto e settimana 10-16 agosto con 3 (soglia raggiunta), procedura corretta |
+| 20 | prepara_briefing | sì | KPI e controlli corretti, nessuna anomalia, riconoscimento panetteria con bozza nel riquadro |
+
+Esito: 15 corrette, 3 parziali, 2 sbagliate (il 22 ottobre: 14, 3, 3).
+Token del test completo (20 domande): 171.995. Chiamate OpenAI conteggiate (in modo prudente): 110.
+
