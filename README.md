@@ -1,5 +1,10 @@
 # SpesaViva – Store Manager Copilot
 
+**Prova l'app online: <https://spesaviva-copilot.onrender.com>**
+(piano gratuito: se nessuno la usa da un po', il primo accesso richiede circa un minuto)
+
+![Schermata iniziale](docs/screenshot/0_home.png)
+
 Assistente per lo Store Manager di un supermercato: risponde a domande sui dati
 del negozio e sulle procedure del manuale operativo, prepara il briefing del
 mattino, controlla le soglie del manuale e scrive la bozza del report per
