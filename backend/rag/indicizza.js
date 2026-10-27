@@ -98,8 +98,10 @@ async function main() {
 }
 
 main().catch((errore) => {
-  // Mostro solo il messaggio, mai la configurazione del client (che non contiene comunque la chiave)
-  // Messaggio fisso: il testo originale (es. errori di OpenAI) può contenere parti della chiave
-  console.error(`Indicizzazione non riuscita (${errore.name}): controlla che ChromaDB sia avviato e che la chiave OpenAI nel .env sia valida.`);
+  // Il testo originale (es. errori di OpenAI) può contenere parti della chiave: ogni pezzo che
+  // somiglia a una chiave viene nascosto, e il dettaglio si tronca
+  const dettaglio = String(errore.message ?? "").replace(/sk-[A-Za-z0-9_*\-]+/g, "sk-***").slice(0, 200);
+  console.error(`Indicizzazione non riuscita (${errore.name}${errore.status ? `, stato ${errore.status}` : ""}): ${dettaglio}`);
+  console.error("Controlla che ChromaDB sia avviato e che la chiave OpenAI (OPENAI_API_KEY) sia valida.");
   process.exit(1);
 });
