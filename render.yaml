@@ -1,0 +1,15 @@
+# Configurazione del servizio su Render (Blueprint): un solo servizio web dal Dockerfile.
+# La chiave OpenAI si inserisce nella dashboard di Render, mai in questo file.
+services:
+  - type: web
+    name: spesaviva-copilot
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini
+      - key: ORCHESTRATOR_MODEL
+        value: gpt-4.1-mini

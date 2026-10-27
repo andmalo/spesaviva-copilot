@@ -15,7 +15,7 @@ const OpenAI = require("openai");
 const { rateLimit } = require("express-rate-limit");
 
 const {
-  STRUMENTI, STRUMENTI_SENZA_PARAMETRI, STRUMENTI_CON_PERIODO, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent,
+  STRUMENTI, STRUMENTI_SENZA_PARAMETRI, STRUMENTI_CON_PERIODO, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent, NOME_GRAFICO,
 } = require("./strumenti");
 const { creaClient } = require("./rag/config");
 const { separaBozza, separaFonti, togliDomandaFinale, aggiungiFonteUfficiale } = require("./testo_risposte");
@@ -27,10 +27,15 @@ const { creaFeedback } = require("./feedback");
 // Configurazione
 // ---------------------------------------------------------------------------
 
-const PORTA = Number(process.env.BACKEND_PORT || 3001);
-// Solo localhost: il back end non deve essere raggiungibile dagli altri dispositivi della rete
-const INDIRIZZO_ASCOLTO = "127.0.0.1";
+// In produzione (contenitore Docker su Render) il server è l'unico servizio esposto:
+// ascolta sulla porta assegnata dalla piattaforma e serve anche il front end compilato.
+// Data agent e ChromaDB restano su 127.0.0.1 dentro il contenitore.
+const PRODUZIONE = process.env.MODALITA === "produzione";
+const PORTA = Number((PRODUZIONE && process.env.PORT) || process.env.BACKEND_PORT || 3001);
+// In locale solo localhost: il back end non deve essere raggiungibile dagli altri dispositivi della rete
+const INDIRIZZO_ASCOLTO = PRODUZIONE ? "0.0.0.0" : "127.0.0.1";
 const ORIGINE_FRONT_END = "http://localhost:5173";
+const CARTELLA_FRONT_END = path.resolve(__dirname, "..", "frontend", "dist");
 
 const LUNGHEZZA_MASSIMA_MESSAGGIO = 1000; // caratteri
 const MESSAGGI_IN_MEMORIA = 10;           // ultimi messaggi della sessione mandati all'LLM
@@ -462,7 +467,11 @@ const feedback = creaFeedback({
 
 const app = express();
 
-// CORS abilitato solo per il front end React
+// Dietro il proxy della piattaforma: l'IP del visitatore arriva in X-Forwarded-For,
+// così il limite di frequenza vale per ogni visitatore e non per tutti insieme
+if (PRODUZIONE) app.set("trust proxy", 1);
+
+// CORS abilitato solo per il front end React in sviluppo (in produzione è sullo stesso indirizzo)
 app.use(cors({ origin: ORIGINE_FRONT_END }));
 app.use(express.json({ limit: "20kb" }));
 
@@ -608,6 +617,18 @@ app.post("/api/feedback", limiteFrequenza, (req, res, next) => {
 });
 
 // Scenari della demo disponibili (il front end mostra il menu e invia solo l'id)
+// Grafici del data agent, presi dal servizio interno (solo i nomi nel formato generato dal codice)
+app.get("/api/grafici/:nome", async (req, res) => {
+  if (!NOME_GRAFICO.test(req.params.nome)) return res.status(404).end();
+  try {
+    const risposta = await fetch(`${indirizzoDataAgent()}/charts/${req.params.nome}`, { signal: AbortSignal.timeout(10_000) });
+    if (!risposta.ok) return res.status(404).end();
+    res.type("png").send(Buffer.from(await risposta.arrayBuffer()));
+  } catch {
+    res.status(502).end();
+  }
+});
+
 app.get("/api/scenari", (req, res) => {
   res.json(SCENARI);
 });
@@ -631,6 +652,16 @@ app.get("/api/health", async (req, res) => {
     dataAgent,
   });
 });
+
+// In produzione: pagine del front end compilato (npm run build); ogni altro indirizzo non /api
+// riceve index.html, che poi gestisce React
+if (PRODUZIONE) {
+  app.use(express.static(CARTELLA_FRONT_END));
+  app.use((req, res, next) => {
+    if (req.method !== "GET" || req.path.startsWith("/api")) return next();
+    res.sendFile(path.join(CARTELLA_FRONT_END, "index.html"));
+  });
+}
 
 // Gestione centralizzata degli errori: solo messaggi fissi in italiano
 // Express riconosce il gestore degli errori dai 4 parametri: _next serve anche se non si usa

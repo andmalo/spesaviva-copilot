@@ -1,0 +1,13 @@
+# Mai nell'immagine: segreti, ambienti locali e file generati
+.env
+.git
+.venv
+**/node_modules
+**/__pycache__
+frontend/dist
+chroma_data
+data_agent/charts
+backend/feedback.jsonl
+data_agent/prototipo_data_agent.ipynb
+docs
+test

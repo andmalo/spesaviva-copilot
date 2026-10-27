@@ -14,6 +14,7 @@ import json
 import logging
 import os
 import pickle
+import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
@@ -72,6 +73,11 @@ for _nome in VARIABILI_PUBBLICHE:
 # La chiave resta solo in questa variabile e si passa esplicitamente a ChatOpenAI.
 # Se fosse impostata anche nella shell, la si toglie comunque da os.environ.
 _CHIAVE_OPENAI = os.environ.pop("OPENAI_API_KEY", None) or VALORI_ENV.get("OPENAI_API_KEY")
+# In produzione (avvia.mjs produzione) la chiave arriva da standard input e non come variabile
+# d'ambiente: le variabili iniziali di un processo restano leggibili in /proc/self/environ
+# anche dopo os.environ.pop, e il codice scritto dall'agente potrebbe leggerle.
+if os.environ.get("CHIAVE_DA_STDIN") == "1":
+    _CHIAVE_OPENAI = sys.stdin.readline().strip() or None
 
 # Valori che non devono mai comparire in una risposta (quelli molto corti si ignorano,
 # per non bloccare risposte normali)

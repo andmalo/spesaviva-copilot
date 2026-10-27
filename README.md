@@ -126,6 +126,30 @@ una volta, dalla cartella `backend`: `node rag/indicizza.js`.
 Il back end e il data agent ascoltano solo su 127.0.0.1: non sono raggiungibili
 dagli altri dispositivi della rete.
 
+## Deploy online (Render)
+
+Il progetto gira in un solo contenitore Docker (`Dockerfile`): il back end serve anche il
+front end ed è l'unico servizio esposto; data agent e ChromaDB restano interni. Al primo
+avvio il manuale viene indicizzato (una chiamata di embedding).
+
+1. Su [render.com](https://render.com): **New** → **Blueprint** → collega questo repository
+   (Render legge `render.yaml`).
+2. Inserisci `OPENAI_API_KEY` quando richiesto (la chiave resta solo su Render).
+3. Dopo la build l'app è su `https://spesaviva-copilot.onrender.com` (o l'indirizzo indicato da Render).
+
+Note: sul piano gratuito il servizio si addormenta dopo 15 minuti senza visite e il primo
+accesso richiede circa un minuto. Restano attivi i limiti di sicurezza: 10 richieste al
+minuto per visitatore e tetto giornaliero di token. Il codice scritto dall'LLM gira con un
+utente separato, senza accesso alle variabili degli altri processi. Per un uso pubblico è
+consigliata una chiave OpenAI dedicata con un limite di spesa.
+
+Prova in locale con gli stessi limiti del piano gratuito (512 MB, 0,1 CPU):
+
+```powershell
+docker build -t spesaviva-copilot .
+docker run --rm --memory=512m --cpus=0.1 -p 10000:10000 --env-file .env spesaviva-copilot
+```
+
 ## Test
 
 Senza chiamate a OpenAI:

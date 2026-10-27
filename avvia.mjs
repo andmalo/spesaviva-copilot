@@ -5,6 +5,7 @@
 //                     (npm run setup -- --reindicizza per rifarla da capo)
 //   npm start         avvia ChromaDB, data agent, back end e front end, in quest'ordine,
 //                     aspettando che ognuno sia pronto. Ctrl+C li ferma tutti.
+//   node avvia.mjs produzione   avvio nel contenitore Docker (Render), vedi Dockerfile
 import { spawn, spawnSync, execSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
 import net from 'node:net'
@@ -68,13 +69,21 @@ function esegui(descrizione, comando, argomenti, cwd = CARTELLA) {
 }
 
 // Avvia un servizio e ne mostra l'output riga per riga con un prefisso
-function avvia(nome, comando, argomenti, { cwd = CARTELLA, env = {} } = {}) {
+// senzaChiave: il servizio non riceve OPENAI_API_KEY nelle variabili d'ambiente.
+// chiaveDaStdin: la chiave arriva da standard input (data agent in produzione, vedi data_agent/app.py).
+// uid/gid: utente con cui gira il servizio (solo Linux, nel contenitore).
+function avvia(nome, comando, argomenti, { cwd = CARTELLA, env = {}, senzaChiave = false, chiaveDaStdin = false, uid, gid } = {}) {
+  const ambiente = { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8', ...env }
+  if (senzaChiave || chiaveDaStdin) delete ambiente.OPENAI_API_KEY
+  if (chiaveDaStdin) ambiente.CHIAVE_DA_STDIN = '1'
   const processo = spawn(comando, argomenti, {
     cwd,
-    env: { ...process.env, PYTHONUNBUFFERED: '1', PYTHONIOENCODING: 'utf-8', ...env },
+    env: ambiente,
     // Fuori da Windows ogni servizio ha il suo gruppo di processi, da fermare tutto insieme
     detached: !WINDOWS,
+    ...(uid !== undefined && { uid, gid }),
   })
+  if (chiaveDaStdin) processo.stdin.end(`${process.env.OPENAI_API_KEY}\n`)
   const prefisso = `[${nome}]`.padEnd(13)
   for (const flusso of [processo.stdout, processo.stderr]) {
     let resto = ''
@@ -137,8 +146,10 @@ async function attendiPronto(nome, url) {
 }
 
 function avviaChroma(porte) {
-  avvia('chromadb', CHROMA_VENV, ['run', '--path', path.join(CARTELLA, 'chroma_data'), '--port', String(porte.chroma)])
-  return attendiPronto('ChromaDB', `http://localhost:${porte.chroma}/api/v2/heartbeat`)
+  // ChromaDB non calcola embedding (li calcola il back end): la chiave non gli serve
+  avvia('chromadb', CHROMA_VENV, ['run', '--path', path.join(CARTELLA, 'chroma_data'), '--host', '127.0.0.1', '--port', String(porte.chroma)],
+    { senzaChiave: true })
+  return attendiPronto('ChromaDB', `http://127.0.0.1:${porte.chroma}/api/v2/heartbeat`)
 }
 
 async function controllaPorteLibere(porte) {
@@ -182,7 +193,7 @@ async function setup() {
   if (await portaOccupata(porte.chroma)) termina(`La porta ${porte.chroma} di ChromaDB è già occupata: ferma il progetto e riprova.`)
   await avviaChroma(porte)
   const collezione = await fetch(
-    `http://localhost:${porte.chroma}/api/v2/tenants/default_tenant/databases/default_database/collections/${NOME_COLLEZIONE}`)
+    `http://127.0.0.1:${porte.chroma}/api/v2/tenants/default_tenant/databases/default_database/collections/${NOME_COLLEZIONE}`)
   if (collezione.ok && !process.argv.includes('--reindicizza')) {
     console.log(`\n[setup] Manuale già indicizzato (collezione "${NOME_COLLEZIONE}"): nessuna chiamata a OpenAI`)
   } else {
@@ -211,7 +222,32 @@ async function start() {
   console.log(`\n[avvio] Tutto pronto: apri http://localhost:${porte.frontend}  (Ctrl+C per fermare tutto)\n`)
 }
 
-const comandi = { setup, start }
+// Avvio nel contenitore Docker (Render): configurazione dalle variabili d'ambiente della piattaforma,
+// front end già compilato e servito dal back end, data agent con un utente separato.
+async function produzione() {
+  for (const variabile of ['OPENAI_API_KEY', 'OPENAI_MODEL', 'ORCHESTRATOR_MODEL', 'PORT']) {
+    if (!process.env[variabile]) termina(`Variabile ${variabile} mancante: impostala nelle variabili d'ambiente del servizio.`)
+  }
+  const porte = { chroma: 8000, dataAgent: 8001 }
+  await avviaChroma(porte)
+  // Il disco del contenitore si azzera a ogni riavvio: se manca, il manuale si reindicizza (una sola chiamata di embedding)
+  const collezione = await fetch(
+    `http://127.0.0.1:${porte.chroma}/api/v2/tenants/default_tenant/databases/default_database/collections/${NOME_COLLEZIONE}`)
+  if (!collezione.ok) esegui('Indicizzazione del manuale in ChromaDB', 'node', ['rag/indicizza.js'], path.join(CARTELLA, 'backend'))
+
+  // Il codice scritto dall'agente gira con un utente diverso: non può leggere variabili e memoria
+  // degli altri processi (dove c'è la chiave) e la chiave stessa gli arriva da standard input
+  const utente = process.env.UID_DATA_AGENT
+    ? { uid: Number(process.env.UID_DATA_AGENT), gid: Number(process.env.GID_DATA_AGENT) }
+    : {}
+  avvia('data-agent', PYTHON_VENV, [path.join('data_agent', 'app.py')], { chiaveDaStdin: true, ...utente })
+  await attendiPronto('data agent', `http://127.0.0.1:${porte.dataAgent}/health`)
+  avvia('backend', process.execPath, ['server.js'], { cwd: path.join(CARTELLA, 'backend'), env: { MODALITA: 'produzione' } })
+  await attendiPronto('back end', `http://127.0.0.1:${process.env.PORT}/api/scenari`)
+  console.log(`\n[avvio] Tutto pronto sulla porta ${process.env.PORT}\n`)
+}
+
+const comandi = { setup, start, produzione }
 const comando = comandi[process.argv[2]]
-if (!comando) termina('Uso: node avvia.mjs setup | start')
+if (!comando) termina('Uso: node avvia.mjs setup | start | produzione')
 comando().catch((errore) => termina(`Errore imprevisto: ${errore.message}`))

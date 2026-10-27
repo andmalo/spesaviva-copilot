@@ -31,6 +31,16 @@ function indirizzoDataAgent() {
   return `http://127.0.0.1:${process.env.DATA_AGENT_PORT || 8001}`;
 }
 
+// Nomi dei grafici creati dal data agent: solo questo formato è servito da /api/grafici
+const NOME_GRAFICO = /^(grafico|briefing)_[0-9a-f]{32}\.png$/;
+
+// Il browser non raggiunge il data agent (in produzione è interno al contenitore):
+// i grafici passano dal back end, su /api/grafici/<nome>
+function indirizzoGrafico(url) {
+  const nome = typeof url === "string" ? url.split("/").pop() : "";
+  return NOME_GRAFICO.test(nome) ? `/api/grafici/${nome}` : null;
+}
+
 /**
  * POST al data agent. Restituisce { dati } se la risposta è valida, altrimenti { testoErrore }
  * già pronto per l'LLM. Nel log solo il tipo di errore o lo stato: mai il messaggio originale.
@@ -115,7 +125,7 @@ async function analizza_dati(domanda, segnaleRichiesta, scenario) {
 
   return {
     testoPerLLM: dati.risposta,
-    grafico: dati.grafico || null,
+    grafico: indirizzoGrafico(dati.grafico),
     pulizia: dati.pulizia ?? null,
     calcolo: calcolo("codice", dati.codice),
     // Contano nella risposta e nel tetto giornaliero
@@ -234,7 +244,7 @@ async function prepara_briefing(segnaleRichiesta, scenario) {
     anomalie: Array.isArray(dati.anomalie) ? dati.anomalie : [],
     eccedenze: dati.kpi?.eccedenze_donate_kg ?? null,
     calcolo: calcolo("regole", dati.regole),
-    grafico: dati.grafico || null,
+    grafico: indirizzoGrafico(dati.grafico),
     pulizia: dati.pulizia ?? null,
   };
 }
@@ -282,5 +292,5 @@ const STRUMENTI_SENZA_PARAMETRI = new Set(["prepara_briefing"]);
 const STRUMENTI_CON_PERIODO = new Set(["controlla_soglie", "confronta_negozi"]);
 
 module.exports = {
-  STRUMENTI, STRUMENTI_SENZA_PARAMETRI, STRUMENTI_CON_PERIODO, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent,
+  STRUMENTI, STRUMENTI_SENZA_PARAMETRI, STRUMENTI_CON_PERIODO, CHIAMATE_MASSIME_DATA_AGENT, indirizzoDataAgent, NOME_GRAFICO,
 };

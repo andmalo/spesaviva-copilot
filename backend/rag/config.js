@@ -16,7 +16,8 @@ const MODELLO_EMBEDDING = "text-embedding-3-small";
 // Client verso il server ChromaDB locale, sulla porta CHROMA_PORT del .env
 function creaClient() {
   return new ChromaClient({
-    host: "localhost",
+    // 127.0.0.1 e non localhost: su Linux localhost può diventare ::1 (IPv6), dove ChromaDB non ascolta
+    host: "127.0.0.1",
     port: Number(process.env.CHROMA_PORT || 8000),
     ssl: false,
   });
