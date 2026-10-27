@@ -14,6 +14,28 @@ l'Area Manager.
 - **Front end** (React + Vite, `frontend/`), in italiano e in inglese, con tre
   scenari della demo (giornata tranquilla, ondata di caldo, fornitore in crisi).
 
+## Il progetto in funzione
+
+Risposte reali dell'applicazione (gpt-4.1-mini), con gli strumenti usati in alto e le
+fonti del manuale in basso.
+
+**Domanda sul manuale** – ricerca nel manuale operativo e sezioni consultate:
+
+![Domanda sul manuale](docs/screenshot/1_manuale.png)
+
+**Domanda sui dati** – analisi del data agent e grafico disegnato dal codice:
+
+![Domanda sui dati con grafico](docs/screenshot/2_dati_grafico.png)
+
+**Domanda mista** – prima i dati, poi la procedura del manuale:
+
+![Domanda mista: dati e manuale](docs/screenshot/3_domanda_ibrida.png)
+
+**Briefing del mattino** (scenario "Ondata di caldo") – anomalia secondo le soglie del
+manuale, azioni previste, eccedenze donate:
+
+![Briefing del mattino](docs/screenshot/4_briefing.png)
+
 ## Struttura del progetto
 
 ```
