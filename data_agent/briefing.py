@@ -15,7 +15,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import pandas as pd
 
-from grafici import BLOCCO_GRAFICI
+from grafici import ARANCIONE, BLOCCO_GRAFICI, GRIGIO_SOGLIA, VERDE
 
 # ---------------------------------------------------------------------------
 # Soglie copiate dal manuale operativo (data/documenti/manuale_operativo.md)
@@ -51,12 +51,6 @@ SOGLIE = {
 }
 
 REPARTI = ["ortofrutta", "panetteria", "freschi"]
-
-# Colori del grafico
-VERDE = "#1F6B45"
-ARANCIONE = "#C2721F"
-GRIGIO_SOGLIA = "#5B625C"
-
 MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
         "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
 GIORNI = ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"]
@@ -103,6 +97,14 @@ def _numero_it(valore: float, decimali: int = 2) -> str:
 def _tasso_scarto(righe: pd.DataFrame, reparto: str) -> pd.Series:
     """Tasso di scarto giornaliero del reparto, in % delle vendite dello stesso reparto."""
     return righe[f"scarti_{reparto}"] / righe[f"vendite_{reparto}"] * 100
+
+
+def _tassi_scarto(righe: pd.DataFrame) -> tuple[dict, float]:
+    """Tasso di scarto di un periodo, per reparto e complessivo (rapporto dei totali), in %."""
+    tassi = {r: round(float(righe[f"scarti_{r}"].sum() / righe[f"vendite_{r}"].sum() * 100), 2) for r in REPARTI}
+    scarti = sum(float(righe[f"scarti_{r}"].sum()) for r in REPARTI)
+    vendite = sum(float(righe[f"vendite_{r}"].sum()) for r in REPARTI)
+    return tassi, round(scarti / vendite * 100, 2)
 
 
 def _giorni_consecutivi(condizione: pd.Series, fine: date) -> tuple[int, date | None]:
@@ -299,7 +301,7 @@ def kpi_periodo(df: pd.DataFrame, negozio: str, inizio: date, fine: date) -> dic
         "scostamento_pct": round((vendite - obiettivo) / obiettivo * 100, 2),
         "scontrini": int(scontrini),
         "scontrino_medio": round(vendite / scontrini, 2),
-        "tasso_scarto": {r: round(float(righe[f"scarti_{r}"].sum() / righe[f"vendite_{r}"].sum() * 100), 2) for r in REPARTI},
+        "tasso_scarto": _tassi_scarto(righe)[0],
         "eccedenze_donate_kg": round(float(righe["eccedenze_donate_kg"].sum()), 1),
     }
 
@@ -627,13 +629,7 @@ def prepara_briefing(df: pd.DataFrame, negozio: str, oggi: date, percorso_grafic
     Solleva ValueError se non ci sono dati del negozio per ieri.
     """
     ieri = oggi - timedelta(days=1)
-
-    # Serie giornaliera del negozio, indicizzata per data (bastano le ultime settimane)
-    righe = df[(df["negozio"] == negozio) & (df["data"].dt.date >= ieri - timedelta(days=21))
-               & (df["data"].dt.date <= ieri)].copy()
-    righe["giorno"] = righe["data"].dt.date
-    serie = righe.set_index("giorno").sort_index()
-
+    serie = _serie_giornaliera(df, negozio, ieri - timedelta(days=GIORNI_STORICO), ieri)
     if ieri not in serie.index:
         raise ValueError(f"Nessun dato disponibile per il negozio {negozio} il {_data_it(ieri)}.")
 
@@ -698,14 +694,6 @@ REGOLE_BRIEFING = "\n".join([
 # ---------------------------------------------------------------------------
 # Confronto tra negozi: tassi di scarto (rapporti, mai valori assoluti)
 # ---------------------------------------------------------------------------
-
-def _tassi_scarto(righe: pd.DataFrame) -> tuple[dict, float]:
-    """Tasso di scarto per reparto e complessivo (rapporto dei totali), in %."""
-    tassi = {r: round(float(righe[f"scarti_{r}"].sum() / righe[f"vendite_{r}"].sum() * 100), 2) for r in REPARTI}
-    scarti = sum(float(righe[f"scarti_{r}"].sum()) for r in REPARTI)
-    vendite = sum(float(righe[f"vendite_{r}"].sum()) for r in REPARTI)
-    return tassi, round(scarti / vendite * 100, 2)
-
 
 def confronta_negozi(df: pd.DataFrame, negozio: str, inizio: date, fine: date) -> dict:
     """Confronta i tassi di scarto del negozio con quelli degli altri negozi nel periodo.

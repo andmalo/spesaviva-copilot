@@ -11,6 +11,7 @@ const { spawn, execSync } = require("node:child_process");
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
 
 const { SCENARI, dateScenario } = require("./scenari");
+const { ultimaSettimanaCompleta } = require("./azioni");
 const { STRUMENTI, indirizzoDataAgent } = require("./strumenti");
 
 const CARTELLA_PROGETTO = path.resolve(__dirname, "..");
@@ -60,15 +61,6 @@ async function attendi(url) {
     await new Promise((r) => setTimeout(r, 1000));
   }
   throw new Error(`Nessuna risposta da ${url}`);
-}
-
-// Ultima settimana completa (lunedì-domenica) prima di oggi, come nell'azione "soglie"
-function ultimaSettimanaCompleta(oggiIso) {
-  const oggi = new Date(`${oggiIso}T12:00:00`);
-  const domenica = new Date(oggi.getFullYear(), oggi.getMonth(), oggi.getDate() - (oggi.getDay() || 7), 12);
-  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const lunedi = new Date(domenica.getFullYear(), domenica.getMonth(), domenica.getDate() - 6, 12);
-  return { inizio: iso(lunedi), fine: iso(domenica) };
 }
 
 let falliti = 0;

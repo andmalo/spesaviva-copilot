@@ -223,7 +223,7 @@ export function formattaNumero(n, lingua, decimali = 2) {
 }
 
 /** Traduce i nomi dei mesi italiani dentro un testo ("luglio 2025 e agosto 2025" -> "July 2025 and August 2025"). */
-export function traduciMesi(testo, lingua) {
+function traduciMesi(testo, lingua) {
   if (lingua !== 'en') return testo
   return MESI_IT.reduce((t, m, i) => t.replace(new RegExp(`\\b${m}\\b`, 'g'), MESI_EN[i]), testo).replace(/ e /g, ' and ')
 }

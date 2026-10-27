@@ -1,9 +1,9 @@
 """Servizio FastAPI del data agent.
 
-Riceve una domanda in linguaggio naturale, la fa analizzare al pandas agent
-sui dati puliti dei negozi e restituisce la risposta, l'URL del grafico
-generato e il riepilogo della pulizia dei dati.
-Prepara inoltre il briefing del mattino, calcolato solo con pandas (POST /briefing).
+- POST /analizza: domanda in linguaggio naturale, analizzata dal pandas agent
+  (risposta, grafico disegnato dal codice, codice eseguito, token).
+- POST /briefing, /soglie, /confronto: calcoli deterministici, solo pandas, nessun LLM.
+Ogni richiesta porta l'id dello scenario della demo (data di "oggi" e negozio).
 
 Avvio (dalla cartella principale del progetto, con il .venv attivo):
     python data_agent/app.py
@@ -37,18 +37,16 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from briefing import (REGOLE_BRIEFING, REGOLE_CONFRONTO, REGOLE_SOGLIE, confronta_negozi, controlla_soglie,
+from briefing import (MESI, REGOLE_BRIEFING, REGOLE_CONFRONTO, REGOLE_SOGLIE, confronta_negozi, controlla_soglie,
                       kpi_periodo, prepara_briefing, soglie_superate, testo_confronto, testo_kpi, testo_soglie)
 from grafici import disegna_grafico, estrai_blocco_grafico
 from pulizia import pulisci_dati, riepilogo_pulizia
 
-# Percorsi del progetto
 CARTELLA_AGENTE = Path(__file__).resolve().parent
 CARTELLA_PROGETTO = CARTELLA_AGENTE.parent
 PERCORSO_CSV = CARTELLA_PROGETTO / "data" / "dati_negozi.csv"
 PERCORSO_PROMPT = CARTELLA_AGENTE / "prompt_data_agent.txt"
-# Scenari della demo: lo stesso file letto dal back end
-PERCORSO_SCENARI = CARTELLA_PROGETTO / "backend" / "scenari.json"
+PERCORSO_SCENARI = CARTELLA_PROGETTO / "backend" / "scenari.json"  # lo stesso file del back end
 CARTELLA_GRAFICI = CARTELLA_AGENTE / "charts"
 
 # ---------------------------------------------------------------------------
@@ -59,10 +57,10 @@ CARTELLA_GRAFICI = CARTELLA_AGENTE / "charts"
 # dall'agente potrebbe leggere.
 VALORI_ENV = dotenv_values(CARTELLA_PROGETTO / ".env")
 
-# Variabili non segrete: copiate in os.environ (se non già impostate) per il resto del codice
+# Variabili non segrete, copiate in os.environ. Tutte le altre del .env sono trattate come riservate.
 VARIABILI_PUBBLICHE = {
     "OPENAI_MODEL", "ORCHESTRATOR_MODEL", "DATA_AGENT_MODEL",
-    # Non più usate (data e negozio vengono dallo scenario), ma non segrete: possono restare nel .env
+    # Non più usate (data e negozio vengono dallo scenario), ma possono restare nel .env
     "DATA_RIFERIMENTO", "NEGOZIO_UTENTE",
     "BACKEND_PORT", "DATA_AGENT_PORT", "CHROMA_PORT",
     "LIMITE_RICHIESTE_MINUTO", "TETTO_TOKEN_GIORNALIERO",
@@ -75,8 +73,7 @@ for _nome in VARIABILI_PUBBLICHE:
 # Se fosse impostata anche nella shell, la si toglie comunque da os.environ.
 _CHIAVE_OPENAI = os.environ.pop("OPENAI_API_KEY", None) or VALORI_ENV.get("OPENAI_API_KEY")
 
-# Valori che non devono mai comparire in una risposta: la chiave e ogni altro valore
-# del .env che non sia esplicitamente pubblico (i valori molto corti si ignorano,
+# Valori che non devono mai comparire in una risposta (quelli molto corti si ignorano,
 # per non bloccare risposte normali)
 VALORI_RISERVATI = sorted(
     {v for k, v in VALORI_ENV.items() if k not in VARIABILI_PUBBLICHE and v and len(v) >= 6}
@@ -89,14 +86,12 @@ MESSAGGIO_BLOCCATO = ("La risposta è stata bloccata perché conteneva informazi
 # Limiti alle chiamate OpenAI, per evitare loop e costi imprevisti
 MAX_TOKEN_RISPOSTA = 2000     # con meno token il codice scritto dall'agente veniva troncato
 MAX_PASSI_PER_DOMANDA = 5     # ogni passo dell'agente è una chiamata al modello
-MAX_SECONDI_PER_DOMANDA = 90  # tempo massimo per una singola domanda
-TIMEOUT_CHIAMATA = 60         # tempo massimo per una singola chiamata a OpenAI
+MAX_SECONDI_PER_DOMANDA = 90
+TIMEOUT_CHIAMATA = 60         # secondi per una singola chiamata a OpenAI
 RIGHE_ANTEPRIMA = 3           # righe di esempio del DataFrame incluse nel prompt
 DURATA_GRAFICI_ORE = 24       # i grafici più vecchi si cancellano all'avvio
 MAX_CARATTERI_CODICE = 4000   # codice mostrato in "Come l'ho calcolato": oltre si tronca
-
-MESI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
-        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"]
+MAX_GIORNI_PERIODO = 400      # periodo massimo per soglie e confronto
 
 logger = logging.getLogger("data_agent")
 
@@ -107,26 +102,16 @@ logger = logging.getLogger("data_agent")
 stato = {}
 
 
-# ---------------------------------------------------------------------------
-# Funzioni di supporto
-# ---------------------------------------------------------------------------
-
 def contiene_dati_riservati(testo: str) -> bool:
     """Vero se il testo contiene "sk-" (inizio delle chiavi OpenAI) o un valore riservato del .env."""
     return "sk-" in testo or any(valore in testo for valore in VALORI_RISERVATI)
 
 
-def salva_dati_puliti(df: pd.DataFrame) -> None:
-    """Conserva i dati puliti come bytes, con l'impronta per controllarne l'integrità."""
-    dati = pickle.dumps(df)
-    stato["dati"] = dati
-    stato["impronta"] = hashlib.sha256(dati).hexdigest()
-
-
 def carica_dati_puliti() -> None:
-    """Legge il CSV, lo pulisce e conserva il risultato (all'avvio o se i dati risultano alterati)."""
+    """Legge e pulisce il CSV; conserva i dati come bytes con l'impronta sha256 (all'avvio o se alterati)."""
     df_pulito, report = pulisci_dati(pd.read_csv(PERCORSO_CSV))
-    salva_dati_puliti(df_pulito)
+    stato["dati"] = pickle.dumps(df_pulito)
+    stato["impronta"] = hashlib.sha256(stato["dati"]).hexdigest()
     stato["riepilogo_pulizia"] = riepilogo_pulizia(report)
     logger.info("Dati caricati: %d righe dopo la pulizia", len(df_pulito))
 
@@ -182,12 +167,12 @@ def pulisci_grafici_vecchi() -> int:
                 file.unlink()
                 cancellati += 1
         except OSError:
-            pass  # file in uso o già cancellato: si riprova al prossimo avvio
+            pass  # file in uso: si riprova al prossimo avvio
     return cancellati
 
 
 def modello_data_agent() -> str:
-    """Modello del data agent: DATA_AGENT_MODEL se impostato, altrimenti OPENAI_MODEL."""
+    """DATA_AGENT_MODEL se impostato, altrimenti OPENAI_MODEL."""
     return os.getenv("DATA_AGENT_MODEL") or os.getenv("OPENAI_MODEL")
 
 
@@ -223,12 +208,10 @@ async def ciclo_di_vita(app: FastAPI):
 
 app = FastAPI(title="Data agent", lifespan=ciclo_di_vita)
 
-# La cartella dei grafici deve esistere prima di essere servita come file statici
 CARTELLA_GRAFICI.mkdir(exist_ok=True)
 app.mount("/charts", StaticFiles(directory=CARTELLA_GRAFICI), name="charts")
 
 
-# Ogni richiesta porta l'id dello scenario della demo (data di "oggi" e negozio)
 class Domanda(BaseModel):
     domanda: str
     scenario: str | None = None
@@ -242,9 +225,6 @@ class Periodo(BaseModel):
 
 class RichiestaBriefing(BaseModel):
     scenario: str | None = None
-
-
-MAX_GIORNI_PERIODO = 400  # periodo massimo per il controllo delle soglie
 
 
 def costruisci_prompt(scenario: dict) -> str:
@@ -264,19 +244,22 @@ def grafico_dalla_risposta(testo: str, percorso_grafico: Path) -> str:
     """Toglie dalla risposta il blocco ```json del grafico e, se la spec è valida, disegna il grafico.
     Restituisce il testo senza il blocco. Se manca o non è valido: nessun grafico, solo una riga di log."""
     testo_pulito, spec, motivo = estrai_blocco_grafico(testo)
-    if spec is not None:
-        try:
-            creato, motivo = disegna_grafico(spec, percorso_grafico)
-        except Exception as errore:
-            creato, motivo = False, f"errore nel disegno ({type(errore).__name__})"
-        if creato:
-            return testo_pulito
-    if spec is not None:
-        # Si registra anche la spec scartata (solo dati del grafico, già passati dal filtro), troncata
-        logger.warning("Grafico non prodotto: %s | spec: %s", motivo, json.dumps(spec, ensure_ascii=False)[:500])
-    else:
+    if spec is None:
         logger.warning("Grafico non prodotto: %s", motivo)
+        return testo_pulito
+    try:
+        creato, motivo = disegna_grafico(spec, percorso_grafico)
+    except Exception as errore:
+        creato, motivo = False, f"errore nel disegno ({type(errore).__name__})"
+    if not creato:
+        # La spec scartata (solo dati del grafico, già passati dal filtro) aiuta a capire il motivo
+        logger.warning("Grafico non prodotto: %s | spec: %s", motivo, json.dumps(spec, ensure_ascii=False)[:500])
     return testo_pulito
+
+
+def url_grafico(request: Request, nome: str, percorso: Path) -> str | None:
+    """URL del grafico, solo se il file è stato davvero creato."""
+    return f"{str(request.base_url).rstrip('/')}/charts/{nome}" if percorso.exists() else None
 
 
 def messaggio_errore(errore: Exception) -> str:
@@ -297,8 +280,8 @@ def messaggio_errore(errore: Exception) -> str:
 
 def codice_eseguito(passi: list) -> str | None:
     """Codice Python eseguito dall'agente nei passi intermedi, per "Come l'ho calcolato".
-    Solo il codice (non i risultati), troncato a MAX_CARATTERI_CODICE e passato dal filtro
-    sui dati riservati: se contiene qualcosa di riservato non si mostra nulla."""
+    Solo il codice (non i risultati), troncato e passato dal filtro sui dati riservati:
+    se contiene qualcosa di riservato non si mostra nulla."""
     blocchi = []
     for azione, _risultato in passi:
         ingresso = azione.tool_input
@@ -331,33 +314,33 @@ def esegui_analisi(domanda: str, percorso_grafico: Path, scenario: dict,
         api_key=_CHIAVE_OPENAI,  # passata esplicitamente: non è in os.environ
         temperature=0,
         max_tokens=MAX_TOKEN_RISPOSTA,
-        max_retries=0,  # nessun nuovo tentativo automatico in caso di errore
+        max_retries=0,
         timeout=TIMEOUT_CHIAMATA,
         callbacks=[contatore, chiamate, *(callbacks or [])],
     )
     agente = create_pandas_dataframe_agent(
         llm,
-        nuova_copia_dati(date_scenario(scenario)[1]),  # copia nuova, solo fino a ieri dello scenario
+        nuova_copia_dati(date_scenario(scenario)[1]),
         agent_type="tool-calling",
         prefix=costruisci_prompt(scenario),
         number_of_head_rows=RIGHE_ANTEPRIMA,
         max_iterations=MAX_PASSI_PER_DOMANDA,
         max_execution_time=MAX_SECONDI_PER_DOMANDA,
         allow_dangerous_code=True,
-        return_intermediate_steps=True,  # per mostrare il codice eseguito
+        return_intermediate_steps=True,  # per "Come l'ho calcolato"
     )
     risultato = agente.invoke({"input": domanda})
-    token = sum(uso.get("total_tokens", 0) for uso in contatore.usage_metadata.values())
+    usi = contatore.usage_metadata.values()
+    token = sum(uso.get("total_tokens", 0) for uso in usi)
 
-    # Una riga di log per analisi: modello, chiamate reali e token (input, di cui dalla cache, output).
-    # Serve a misurare costi e chiamate senza cambiare il comportamento.
-    entrata = sum(u.get("input_tokens", 0) for u in contatore.usage_metadata.values())
-    cache = sum((u.get("input_token_details") or {}).get("cache_read", 0) for u in contatore.usage_metadata.values())
-    uscita = sum(u.get("output_tokens", 0) for u in contatore.usage_metadata.values())
+    # Una riga di log per analisi, per misurare costi e chiamate
+    entrata = sum(u.get("input_tokens", 0) for u in usi)
+    cache = sum((u.get("input_token_details") or {}).get("cache_read", 0) for u in usi)
+    uscita = sum(u.get("output_tokens", 0) for u in usi)
     print(f"[analisi] modello={modello_data_agent()} chiamate={chiamate.chiamate} "
           f"input={entrata} cache={cache} output={uscita}", flush=True)
 
-    # Filtro sulle risposte: si controlla il testo grezzo, blocco del grafico compreso
+    # Filtro sul testo grezzo, blocco del grafico compreso
     testo = str(risultato["output"])
     if contiene_dati_riservati(testo):
         logger.warning("Risposta bloccata dal filtro: conteneva informazioni riservate")
@@ -373,19 +356,18 @@ def esegui_analisi(domanda: str, percorso_grafico: Path, scenario: dict,
 
 @app.get("/health")
 def health():
-    """Controllo rapido che il servizio sia attivo."""
     return {"stato": "ok"}
 
 
 @app.post("/analizza")
 def analizza(richiesta: Domanda, request: Request):
-    """Fa rispondere il pandas agent alla domanda e restituisce risposta, grafico, nota sulla pulizia e token."""
+    """Risposta del pandas agent, grafico, nota sulla pulizia, token e codice eseguito."""
     domanda = richiesta.domanda.strip()
     if not domanda:
         raise HTTPException(status_code=400, detail="La domanda è vuota.")
     scenario = leggi_scenario(richiesta.scenario)
 
-    # Nome file unico per il grafico di questa richiesta (lo disegna il codice, non l'agente)
+    # Nome unico per il grafico di questa richiesta (lo disegna il codice, non l'agente)
     nome_grafico = f"grafico_{uuid.uuid4().hex}.png"
     percorso_grafico = CARTELLA_GRAFICI / nome_grafico
 
@@ -395,12 +377,9 @@ def analizza(richiesta: Domanda, request: Request):
         logger.error("Analisi non riuscita: %s", type(errore).__name__)
         raise HTTPException(status_code=500, detail=messaggio_errore(errore))
 
-    # URL del grafico solo se il file è stato davvero creato
-    url_grafico = f"{str(request.base_url).rstrip('/')}/charts/{nome_grafico}" if percorso_grafico.exists() else None
-
     return {
         "risposta": risposta,
-        "grafico": url_grafico,
+        "grafico": url_grafico(request, nome_grafico, percorso_grafico),
         "pulizia": stato["riepilogo_pulizia"],
         "token": token,
         "codice": codice,  # mostrato come testo, mai eseguito dal front end
@@ -409,15 +388,13 @@ def analizza(richiesta: Domanda, request: Request):
 
 @app.post("/briefing")
 def briefing(request: Request, richiesta: RichiestaBriefing | None = None):
-    """Briefing del mattino: KPI di ieri, anomalie secondo le soglie del manuale e grafico degli scarti.
-    Calcolato solo con pandas, senza chiamate a OpenAI."""
+    """Briefing del mattino: KPI di ieri, anomalie secondo le soglie del manuale e grafico degli scarti."""
     nome_grafico = f"briefing_{uuid.uuid4().hex}.png"
     percorso_grafico = CARTELLA_GRAFICI / nome_grafico
     scenario = leggi_scenario(richiesta.scenario if richiesta else None)
     oggi, ieri = date_scenario(scenario)
 
     try:
-        # Copia nuova dei dati puliti fino a ieri dello scenario, come per /analizza
         risultato = prepara_briefing(nuova_copia_dati(ieri), scenario["negozio"], oggi, percorso_grafico)
     except ValueError as errore:
         # Messaggio scritto da noi in italiano (es. nessun dato per ieri): si può mostrare
@@ -426,20 +403,19 @@ def briefing(request: Request, richiesta: RichiestaBriefing | None = None):
         logger.error("Briefing non riuscito: %s", type(errore).__name__)
         raise HTTPException(status_code=500, detail=f"Errore interno durante il briefing ({type(errore).__name__}).")
 
-    url_grafico = f"{str(request.base_url).rstrip('/')}/charts/{nome_grafico}" if percorso_grafico.exists() else None
     return {
         "kpi": risultato["kpi"],
         "controlli": risultato["controlli"],
         "anomalie": risultato["anomalie"],
         "riconoscimenti": risultato["riconoscimenti"],
-        "grafico": url_grafico,
+        "grafico": url_grafico(request, nome_grafico, percorso_grafico),
         "pulizia": stato["riepilogo_pulizia"],
         "regole": REGOLE_BRIEFING,
     }
 
 
 def leggi_periodo(periodo: Periodo, ieri: date) -> tuple[date, date, str]:
-    """Date del periodo controllate: (inizio, fine, nota). La fine non va oltre ieri dello scenario."""
+    """Date del periodo controllate: (inizio, fine, nota). I dati arrivano fino a ieri: la fine non va oltre."""
     try:
         inizio = date.fromisoformat(periodo.inizio.strip())
         fine = date.fromisoformat(periodo.fine.strip())
@@ -457,40 +433,35 @@ def leggi_periodo(periodo: Periodo, ieri: date) -> tuple[date, date, str]:
 
 @app.post("/soglie")
 def soglie(periodo: Periodo):
-    """Controllo delle soglie del manuale sul periodo indicato (solo pandas, nessun LLM).
-    Restituisce il testo compatto per l'LLM e i risultati strutturati."""
+    """Controllo delle soglie del manuale nel periodo: testo compatto per l'LLM e risultati strutturati."""
     scenario = leggi_scenario(periodo.scenario)
-    # I dati arrivano fino a ieri: la fine del periodo non può andare oltre
     ieri = date_scenario(scenario)[1]
     inizio, fine, nota = leggi_periodo(periodo, ieri)
-
     try:
         dati = nuova_copia_dati(ieri)
         esito = controlla_soglie(dati, scenario["negozio"], inizio, fine)
         kpi = kpi_periodo(dati, scenario["negozio"], inizio, fine)
     except ValueError as errore:
-        # Messaggio scritto da noi in italiano (es. nessun dato nel periodo): si può mostrare
         raise HTTPException(status_code=404, detail=str(errore))
     except Exception as errore:
         logger.error("Controllo delle soglie non riuscito: %s", type(errore).__name__)
         raise HTTPException(status_code=500, detail=f"Errore interno nel controllo delle soglie ({type(errore).__name__}).")
 
     testo = testo_soglie(esito) + ("\n" + nota if nota else "")
-    # Oltre ai controlli: KPI del periodo e soglie superate (servono al report per l'Area Manager)
+    # KPI e soglie superate servono al report per l'Area Manager
     return {"testo": testo, "esito": esito, "kpi": kpi, "testo_kpi": testo_kpi(kpi), "superate": soglie_superate(esito),
             "regole": REGOLE_SOGLIE}
 
 
 @app.post("/confronto")
 def confronto(periodo: Periodo):
-    """Confronto dei tassi di scarto del negozio con gli altri negozi nel periodo (solo pandas, nessun LLM)."""
+    """Tassi di scarto del negozio confrontati con gli altri negozi nel periodo."""
     scenario = leggi_scenario(periodo.scenario)
     ieri = date_scenario(scenario)[1]
     inizio, fine, nota = leggi_periodo(periodo, ieri)
     try:
         esito = confronta_negozi(nuova_copia_dati(ieri), scenario["negozio"], inizio, fine)
     except ValueError as errore:
-        # Messaggio scritto da noi in italiano (es. nessun dato nel periodo): si può mostrare
         raise HTTPException(status_code=404, detail=str(errore))
     except Exception as errore:
         logger.error("Confronto tra negozi non riuscito: %s", type(errore).__name__)

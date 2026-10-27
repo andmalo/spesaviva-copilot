@@ -85,4 +85,4 @@ function creaFeedback({ percorsoFile, ErroreUtente }) {
   return { ricordaRisposta, registraVoto };
 }
 
-module.exports = { creaFeedback, MAX_COMMENTO, MAX_RISPOSTA_SALVATA };
+module.exports = { creaFeedback };

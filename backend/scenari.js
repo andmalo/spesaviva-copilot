@@ -45,4 +45,4 @@ function dateScenario(scenario) {
   };
 }
 
-module.exports = { SCENARI, SCENARIO_PREDEFINITO, trovaScenario, dateScenario };
+module.exports = { SCENARI, MESI, trovaScenario, dateScenario, daIso, aIso, piuGiorni };

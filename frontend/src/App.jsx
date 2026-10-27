@@ -5,7 +5,7 @@ import ChatWindow from './components/ChatWindow.jsx'
 import { CHIAVE_LINGUA, SCENARI, TIMEOUT_RICHIESTA_MS } from './config.js'
 import { LINGUE, LinguaContext, creaTraduttore, haTesto } from './i18n.js'
 
-// Identificativo progressivo dei messaggi, usato come key nelle liste React
+// Id progressivo dei messaggi (key delle liste React)
 let contatoreMessaggi = 0
 const nuovoId = () => ++contatoreMessaggi
 
@@ -84,12 +84,7 @@ export default function App() {
         signal: controller.signal,
       })
 
-      let dati = null
-      try {
-        dati = await risposta.json()
-      } catch {
-        dati = null
-      }
+      const dati = await risposta.json().catch(() => null)
       if (stato.annullata) return
 
       if (risposta.ok && dati && typeof dati.risposta === 'string') {

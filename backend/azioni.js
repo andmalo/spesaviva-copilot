@@ -4,6 +4,7 @@
 const { STRUMENTI } = require("./strumenti");
 const { sezioniPerTitolo } = require("./rag/cerca");
 const { separaBozza, separaFonti, togliDomandaFinale, aggiungiFonteUfficiale } = require("./testo_risposte");
+const { MESI: MESI_IT, daIso, aIso, piuGiorni } = require("./scenari");
 
 const AZIONI = ["briefing", "soglie", "report"];
 
@@ -20,14 +21,9 @@ const SEZIONI_PROCEDURA = {
 };
 
 const MESI = {
-  it: ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"],
+  it: MESI_IT,
   en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
 };
-
-// Data AAAA-MM-GG in ora locale (mezzogiorno, per non avere problemi con l'ora legale)
-const daIso = (iso) => new Date(`${iso}T12:00:00`);
-const aIso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-const piuGiorni = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n, 12);
 
 // Ultima settimana completa (lunedì-domenica) prima di oggi
 function ultimaSettimanaCompleta(oggiIso) {
@@ -154,7 +150,7 @@ function superamenti(controlli) {
  * @param {object} servizi
  * @param {(messaggi: Array, segnale: AbortSignal) => Promise<{testo: string, token: number}>} servizi.chiamaModello
  *   una chiamata al modello senza strumenti, con gli stessi tetti e controlli della chat
- * @param {(storico: Array, lingua: string, istruzioni: string) => Array} servizi.componiMessaggi
+ * @param {(storico: Array, lingua: string, istruzioni: string, scenario: object) => Array} servizi.componiMessaggi
  *   prompt di sistema + memoria della sessione + lingua + istruzioni dell'azione
  */
 function creaAzioni({ chiamaModello, componiMessaggi }) {
@@ -216,7 +212,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
     return { esito, periodo };
   }
 
-  async function report({ lingua, storico, segnale, scenario }) {
+  async function report({ lingua, segnale, scenario }) {
     const esito = nuovoEsito();
     const periodo = ultimaSettimanaCompleta(scenario.oggi);
     const r = await STRUMENTI.controlla_soglie(periodo, segnale, scenario.id);
@@ -306,4 +302,4 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
   return { eseguiAzione };
 }
 
-module.exports = { AZIONI, creaAzioni, ultimaSettimanaCompleta, periodoLeggibile, superamenti };
+module.exports = { AZIONI, creaAzioni, ultimaSettimanaCompleta };

@@ -269,21 +269,26 @@ function controllaSessione(sessionId) {
   }
 }
 
+// Chiamate OpenAI che ogni strumento può fare nel caso peggiore, prenotate nel tetto di chiamate:
+// 5 per il data agent, 1 embedding per la ricerca, nessuna per i calcoli fatti solo con pandas
+const CHIAMATE_PER_STRUMENTO = {
+  analizza_dati: CHIAMATE_MASSIME_DATA_AGENT, cerca_procedure: 1, prepara_briefing: 0, controlla_soglie: 0, confronta_negozi: 0,
+};
+
 /**
- * Una chiamata al modello senza strumenti, per le azioni dirette: stessi controlli della chat
- * (annullamento, tetto giornaliero, tetto di chiamate, errori tradotti, token conteggiati).
- * @returns {Promise<{testo: string, token: number}>}
+ * Una chiamata al modello con tutti i controlli: annullamento, tetto giornaliero, tetto di chiamate,
+ * errori di OpenAI tradotti in messaggi fissi.
  */
-async function chiamaModello(messaggi, segnale) {
+async function creaCompletamento(parametri, segnale) {
   if (segnale.aborted) throw new RichiestaAnnullata();
   controllaTettoGiornaliero();
   if (!prenotaChiamate(1)) {
     throw new ErroreUtente(429, "È stato raggiunto il numero massimo di chiamate al servizio di intelligenza artificiale.");
   }
-  let completamento;
   try {
-    completamento = await openai.chat.completions.create(
-      { model: MODELLO, messages: messaggi, temperature: 0, max_completion_tokens: MAX_TOKEN_RISPOSTA },
+    return await openai.chat.completions.create(
+      { model: MODELLO, temperature: 0, max_completion_tokens: MAX_TOKEN_RISPOSTA, ...parametri },
+      // Il segnale interrompe la chiamata in corso se il front end chiude la richiesta
       { signal: segnale }
     );
   } catch (errore) {
@@ -291,12 +296,85 @@ async function chiamaModello(messaggi, segnale) {
     console.error(`[openai] chiamata non riuscita (${errore.constructor.name})`);
     throw erroreOpenAI(errore);
   }
+}
+
+/**
+ * Una chiamata al modello senza strumenti, per le azioni dirette (token conteggiati e registrati).
+ * @returns {Promise<{testo: string, token: number}>}
+ */
+async function chiamaModello(messaggi, segnale) {
+  const completamento = await creaCompletamento({ messages: messaggi }, segnale);
   const token = completamento.usage?.total_tokens ?? 0;
   aggiungiTokenOggi(token);
-  // Una riga di log con i token (input, di cui dalla cache, output): serve a stimare i costi
+  // Token di input (di cui dalla cache) e di output: servono a stimare i costi
   const uso = completamento.usage ?? {};
   console.log(`[openai] input=${uso.prompt_tokens ?? 0} cache=${uso.prompt_tokens_details?.cached_tokens ?? 0} output=${uso.completion_tokens ?? 0}`);
   return { testo: completamento.choices[0].message.content?.trim() ?? "", token };
+}
+
+/**
+ * Esegue uno strumento chiesto dal modello e raccoglie in esito ciò che va al front end.
+ * Restituisce il contenuto da rimandare al modello.
+ */
+async function eseguiStrumento(chiamata, esito, segnale, scenario) {
+  const nome = chiamata.function?.name;
+  // Parametri: nessuno (prepara_briefing), un periodo (controlla_soglie, confronta_negozi)
+  // oppure la domanda (analizza_dati, cerca_procedure)
+  const senzaParametri = STRUMENTI_SENZA_PARAMETRI.has(nome);
+  const conPeriodo = STRUMENTI_CON_PERIODO.has(nome);
+  const periodo = conPeriodo ? leggiPeriodo(chiamata.function?.arguments) : null;
+  const domanda = senzaParametri || conPeriodo ? null : leggiDomanda(chiamata.function?.arguments);
+
+  if (!STRUMENTI[nome]) return `Errore: lo strumento "${nome}" non esiste.`;
+  if (conPeriodo && !periodo) return "Errore: inizio e fine devono essere date nel formato AAAA-MM-GG.";
+  if (!senzaParametri && !conPeriodo && !domanda) return "Errore: manca il parametro obbligatorio \"domanda\".";
+
+  if (segnale.aborted) throw new RichiestaAnnullata();
+  if (!prenotaChiamate(CHIAMATE_PER_STRUMENTO[nome])) {
+    return "Errore: raggiunto il numero massimo di chiamate consentite, lo strumento non è stato eseguito. Avvisa lo Store Manager.";
+  }
+
+  // Per il front end: la domanda passata, oppure il periodo controllato
+  esito.strumenti.push({ nome, domanda: periodo ? `dal ${periodo.inizio} al ${periodo.fine}` : domanda });
+  const risultato = senzaParametri
+    ? await STRUMENTI[nome](segnale, scenario.id)
+    : await STRUMENTI[nome](periodo ?? domanda, segnale, scenario.id);
+  if (segnale.aborted) throw new RichiestaAnnullata();
+
+  // Token del data agent: contano nella risposta e nel tetto giornaliero
+  if (risultato.token) {
+    esito.token += risultato.token;
+    aggiungiTokenOggi(risultato.token);
+  }
+  for (const fonte of risultato.fonti ?? []) {
+    const giaPresente = esito.sezioni_consultate.some((f) => f.file === fonte.file && f.sezione === fonte.sezione);
+    if (!giaPresente) esito.sezioni_consultate.push(fonte);
+  }
+  if (risultato.grafico) esito.grafici.push(risultato.grafico);
+  if (risultato.riconoscimenti?.length) esito.riconoscimenti.push(...risultato.riconoscimenti);
+  if (risultato.eccedenze) esito.eccedenze_donate = risultato.eccedenze;
+  if (risultato.calcolo) esito.calcoli.push({ strumento: nome, ...risultato.calcolo });
+  if (risultato.pulizia) esito.pulizia = risultato.pulizia;
+  return risultato.testoPerLLM;
+}
+
+// Regole fisse sul testo finale, applicate dal codice perché il modello a volte le ignora
+function completaRisposta(testoFinale, esito, lingua) {
+  // Sezioni del manuale: si mostrano solo quelle che il modello dichiara di aver usato,
+  // e solo se sono davvero tra quelle restituite dalla ricerca (così non può inventarne)
+  const { testo: senzaFonti, titoli } = separaFonti(testoFinale);
+  if (titoli && titoli.length > 0) {
+    const usate = esito.sezioni_consultate.filter((s) => titoli.some((t) => t.toLowerCase() === s.sezione.toLowerCase()));
+    if (usate.length > 0) esito.sezioni_consultate = usate;
+  }
+
+  // La bozza si separa solo se il briefing ha davvero restituito dei riconoscimenti;
+  // un'eventuale bozza non richiesta si toglie e basta
+  const { testo, bozza } = separaBozza(senzaFonti);
+  if (esito.riconoscimenti.length > 0) esito.bozza_riconoscimento = bozza;
+  // Niente domanda finale che offre altro; in inglese la fonte ufficiale (manuale in italiano) la aggiunge il codice
+  esito.risposta = aggiungiFonteUfficiale(togliDomandaFinale(testo), lingua, esito.sezioni_consultate);
+  return esito;
 }
 
 /**
@@ -307,17 +385,10 @@ async function chiamaModello(messaggi, segnale) {
  * @param {string} lingua - "it" oppure "en"
  */
 async function rispondi(storico, messaggio, segnale, lingua, scenario) {
-  // Messaggi mandati al modello: sistema + ultimi messaggi della sessione + lingua + nuovo messaggio
   const messaggi = componiMessaggi(storico, lingua, messaggio, scenario);
-
   const esito = {
     risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null,
     riconoscimenti: [], bozza_riconoscimento: null, eccedenze_donate: null, calcoli: [], token: 0,
-  };
-
-  // Se il front end ha chiuso la richiesta non si fanno altre chiamate
-  const controllaAnnullamento = () => {
-    if (segnale.aborted) throw new RichiestaAnnullata();
   };
 
   // Si attiva se il modello prova a dare numeri senza aver usato strumenti (una volta per richiesta)
@@ -326,36 +397,15 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
   let obbligoPerProssimaChiamata = false;
 
   for (let iterazione = 1; iterazione <= MAX_ITERAZIONI; iterazione++) {
-    controllaAnnullamento();
-    controllaTettoGiornaliero();
-    if (!prenotaChiamate(1)) {
-      throw new ErroreUtente(429, "È stato raggiunto il numero massimo di chiamate al servizio di intelligenza artificiale.");
-    }
-
     // All'ultima iterazione il modello deve rispondere senza chiamare altri strumenti
     const ultimaIterazione = iterazione === MAX_ITERAZIONI;
-
-    let completamento;
-    try {
-      completamento = await openai.chat.completions.create(
-        {
-          model: MODELLO,
-          messages: messaggi,
-          tools: DEFINIZIONI_STRUMENTI,
-          tool_choice: ultimaIterazione ? "none" : obbligoPerProssimaChiamata ? "required" : "auto",
-          // Uno strumento alla volta: nelle domande ibride la procedura si cerca DOPO l'analisi
-          parallel_tool_calls: false,
-          temperature: 0,
-          max_completion_tokens: MAX_TOKEN_RISPOSTA,
-        },
-        // Il segnale interrompe la chiamata in corso se il front end chiude la richiesta
-        { signal: segnale }
-      );
-    } catch (errore) {
-      if (segnale.aborted) throw new RichiestaAnnullata();
-      console.error(`[openai] chiamata non riuscita (${errore.constructor.name})`);
-      throw erroreOpenAI(errore);
-    }
+    const completamento = await creaCompletamento({
+      messages: messaggi,
+      tools: DEFINIZIONI_STRUMENTI,
+      tool_choice: ultimaIterazione ? "none" : obbligoPerProssimaChiamata ? "required" : "auto",
+      // Uno strumento alla volta: nelle domande ibride la procedura si cerca DOPO l'analisi
+      parallel_tool_calls: false,
+    }, segnale);
 
     obbligoPerProssimaChiamata = false;
     const tokenChiamata = completamento.usage?.total_tokens ?? 0;
@@ -366,7 +416,7 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
 
     // Nessuno strumento richiesto: questa è la risposta finale
     if (chiamate.length === 0) {
-      let testoFinale = risposta.content?.trim() || "Non sono riuscito a formulare una risposta. Prova a riformulare la domanda.";
+      const testoFinale = risposta.content?.trim() || "Non sono riuscito a formulare una risposta. Prova a riformulare la domanda.";
 
       // Controllo fisso: cifre in euro o percentuale senza nessuno strumento usato = numeri inventati.
       // Si scarta la risposta e si obbliga il modello a usare uno strumento (una sola volta).
@@ -381,91 +431,13 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
         });
         continue;
       }
-
-      // Sezioni del manuale: si mostrano solo quelle che il modello dichiara di aver usato,
-      // e solo se sono davvero tra quelle restituite dalla ricerca (così non può inventarne)
-      const { testo: senzaFonti, titoli } = separaFonti(testoFinale);
-      testoFinale = senzaFonti;
-      if (titoli && titoli.length > 0) {
-        const usate = esito.sezioni_consultate.filter((s) =>
-          titoli.some((t) => t.toLowerCase() === s.sezione.toLowerCase())
-        );
-        if (usate.length > 0) esito.sezioni_consultate = usate;
-      }
-
-      // La bozza si separa solo se il briefing ha davvero restituito dei riconoscimenti
-      if (esito.riconoscimenti.length > 0) {
-        const { testo, bozza } = separaBozza(testoFinale);
-        esito.risposta = testo;
-        esito.bozza_riconoscimento = bozza;
-      } else {
-        esito.risposta = separaBozza(testoFinale).testo; // un'eventuale bozza non richiesta si toglie
-      }
-      // Niente domanda finale che offre altro (regola del prompt che il modello a volte ignora)
-      esito.risposta = togliDomandaFinale(esito.risposta);
-      // In inglese, la fonte ufficiale (manuale in italiano) la aggiunge il codice
-      esito.risposta = aggiungiFonteUfficiale(esito.risposta, lingua, esito.sezioni_consultate);
-      return esito;
+      return completaRisposta(testoFinale, esito, lingua);
     }
 
-    // Il messaggio dell'assistente con le chiamate va rimandato al modello insieme ai risultati
+    // Il messaggio con le chiamate va rimandato al modello insieme ai risultati
     messaggi.push({ role: "assistant", content: risposta.content ?? null, tool_calls: chiamate });
-
     for (const chiamata of chiamate) {
-      const nome = chiamata.function?.name;
-      // Parametri per tipo di strumento: nessuno (prepara_briefing), un periodo (controlla_soglie, confronta_negozi)
-      // oppure la domanda (analizza_dati, cerca_procedure)
-      const senzaParametri = STRUMENTI_SENZA_PARAMETRI.has(nome);
-      const conPeriodo = STRUMENTI_CON_PERIODO.has(nome);
-      const periodo = conPeriodo ? leggiPeriodo(chiamata.function?.arguments) : null;
-      const domanda = senzaParametri || conPeriodo ? null : leggiDomanda(chiamata.function?.arguments);
-      let contenuto;
-
-      if (!STRUMENTI[nome]) {
-        contenuto = `Errore: lo strumento "${nome}" non esiste.`;
-      } else if (conPeriodo && !periodo) {
-        contenuto = "Errore: inizio e fine devono essere date nel formato AAAA-MM-GG.";
-      } else if (!senzaParametri && !conPeriodo && !domanda) {
-        contenuto = "Errore: manca il parametro obbligatorio \"domanda\".";
-      } else {
-        controllaAnnullamento();
-        // Prenoto le chiamate OpenAI che lo strumento può fare (caso peggiore): 5 per il data agent,
-        // 1 embedding per la ricerca, nessuna per briefing e controllo delle soglie (solo pandas)
-        const chiamateStrumento = {
-          analizza_dati: CHIAMATE_MASSIME_DATA_AGENT, cerca_procedure: 1, prepara_briefing: 0, controlla_soglie: 0,
-          confronta_negozi: 0,
-        }[nome];
-        if (!prenotaChiamate(chiamateStrumento)) {
-          contenuto = "Errore: raggiunto il numero massimo di chiamate consentite, lo strumento non è stato eseguito. Avvisa lo Store Manager.";
-        } else {
-          // Per il front end: la domanda passata, oppure il periodo controllato
-          esito.strumenti.push({ nome, domanda: periodo ? `dal ${periodo.inizio} al ${periodo.fine}` : domanda });
-          const risultato = senzaParametri
-            ? await STRUMENTI[nome](segnale, scenario.id)
-            : await STRUMENTI[nome](periodo ?? domanda, segnale, scenario.id);
-          controllaAnnullamento();
-          contenuto = risultato.testoPerLLM;
-
-          // Token usati dal data agent (se li comunica): contano nella risposta e nel tetto giornaliero
-          if (risultato.token) {
-            esito.token += risultato.token;
-            aggiungiTokenOggi(risultato.token);
-          }
-
-          // Fonti, grafici e pulizia restano al server e vanno solo al front end
-          for (const fonte of risultato.fonti ?? []) {
-            const giaPresente = esito.sezioni_consultate.some((f) => f.file === fonte.file && f.sezione === fonte.sezione);
-            if (!giaPresente) esito.sezioni_consultate.push(fonte);
-          }
-          if (risultato.grafico) esito.grafici.push(risultato.grafico);
-          if (risultato.riconoscimenti?.length) esito.riconoscimenti.push(...risultato.riconoscimenti);
-          if (risultato.eccedenze) esito.eccedenze_donate = risultato.eccedenze;
-          // "Come l'ho calcolato": codice del data agent o regole fisse degli strumenti deterministici
-          if (risultato.calcolo) esito.calcoli.push({ strumento: nome, ...risultato.calcolo });
-          if (risultato.pulizia) esito.pulizia = risultato.pulizia;
-        }
-      }
-
+      const contenuto = await eseguiStrumento(chiamata, esito, segnale, scenario);
       messaggi.push({ role: "tool", tool_call_id: chiamata.id, content: contenuto });
     }
   }
@@ -661,7 +633,8 @@ app.get("/api/health", async (req, res) => {
 });
 
 // Gestione centralizzata degli errori: solo messaggi fissi in italiano
-app.use((errore, req, res, next) => {
+// Express riconosce il gestore degli errori dai 4 parametri: _next serve anche se non si usa
+app.use((errore, req, res, _next) => {
   if (errore instanceof ErroreUtente) {
     return res.status(errore.stato).json({ errore: errore.message, codice: errore.codice });
   }

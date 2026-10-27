@@ -209,7 +209,6 @@ def disegna_grafico(spec, percorso) -> tuple[bool, str | None]:
         else:
             colori.append(VERDE)
 
-    # Altezza proporzionale al numero di barre
     # pyplot non è thread-safe: un grafico alla volta (le richieste girano in thread diversi)
     with BLOCCO_GRAFICI:
         fig, ax = plt.subplots(figsize=(8, 1.4 + 0.55 * len(valori)))
@@ -219,11 +218,9 @@ def disegna_grafico(spec, percorso) -> tuple[bool, str | None]:
         riferimento = max(valori + ([soglia] if soglia is not None else []))
         massimo = riferimento * 1.3 if riferimento > 0 else 1
 
-        # Etichetta con il valore alla fine di ogni barra
         for y, valore in zip(posizioni, valori):
             ax.text(valore + massimo * 0.01, y, _formatta(valore, unita), va="center", fontsize=10)
 
-        # Linea tratteggiata della soglia, se presente
         if soglia is not None:
             ax.axvline(soglia, color=GRIGIO_SOGLIA, linestyle="--", linewidth=1.4)
             ax.text(soglia, -0.7, f"soglia {_formatta(soglia, unita)}", ha="center", va="bottom",

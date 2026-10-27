@@ -1,31 +1,19 @@
 // Strumenti che l'orchestratore mette a disposizione dell'LLM.
-// Ogni strumento restituisce un oggetto con:
-//   - testoPerLLM: l'unico contenuto che viene rimandato al modello
-//   - gli altri campi (fonti, grafico, pulizia) restano al server e finiscono
-//     solo nella risposta al front end
-//   - chiamateOpenAI: quante chiamate a OpenAI può aver fatto lo strumento,
-//     usato per il tetto massimo di chiamate
-const path = require("node:path");
-
-// Carico le variabili dal file .env della cartella principale del progetto
-require("dotenv").config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
-
+// Ogni strumento restituisce un oggetto con testoPerLLM, l'unico contenuto rimandato al modello;
+// gli altri campi (fonti, grafico, pulizia, calcolo...) vanno solo al front end.
 const { cercaProcedure } = require("./rag/cerca");
 
-// Parametri della ricerca nel manuale
-const NUMERO_RISULTATI = 3;  // sezioni chieste a ChromaDB
+const NUMERO_RISULTATI = 3;   // sezioni chieste a ChromaDB
 const DISTANZA_MASSIMA = 0.4; // oltre questa distanza del coseno la sezione è considerata non pertinente
 
-// Parametri della chiamata al data agent
 const TIMEOUT_DATA_AGENT_MS = 120_000;
-const TIMEOUT_BRIEFING_MS = 30_000; // il briefing non usa l'LLM: bastano pochi secondi
+const TIMEOUT_BRIEFING_MS = 30_000; // calcoli senza LLM: bastano pochi secondi
 // Il data agent fa al massimo 5 passi per domanda (MAX_PASSI_PER_DOMANDA in data_agent/app.py):
 // nel conteggio delle chiamate a OpenAI si considera sempre il caso peggiore
 const CHIAMATE_MASSIME_DATA_AGENT = 5;
-// Lunghezza massima del testo di "Come l'ho calcolato" (il data agent tronca già il codice)
-const MAX_CARATTERI_CALCOLO = 5000;
+const MAX_CARATTERI_CALCOLO = 5000; // il data agent tronca già il codice a 4000
 
-// Come è stato fatto il calcolo: codice eseguito dal data agent oppure regole fisse.
+// "Come l'ho calcolato": codice eseguito dal data agent oppure regole fisse.
 // Si mostra solo come testo nel front end, mai eseguito.
 function calcolo(tipo, testo) {
   if (typeof testo !== "string" || !testo.trim()) return null;
@@ -39,37 +27,66 @@ function segnaleConTimeout(millisecondi, segnaleRichiesta) {
   return AbortSignal.any(segnali);
 }
 
-// Indirizzo base del data agent, sulla porta DATA_AGENT_PORT del .env
 function indirizzoDataAgent() {
   return `http://127.0.0.1:${process.env.DATA_AGENT_PORT || 8001}`;
 }
 
 /**
- * Cerca nel manuale le sezioni pertinenti alla domanda.
- * All'LLM passa il testo di ogni sezione con file e titolo.
+ * POST al data agent. Restituisce { dati } se la risposta è valida, altrimenti { testoErrore }
+ * già pronto per l'LLM. Nel log solo il tipo di errore o lo stato: mai il messaggio originale.
+ * @param {string|function(Error): string} nonRaggiungibile - testo se il servizio non risponde
+ * @param {function(string): string} nonRiuscita - testo se risponde con un errore (riceve il detail)
  */
+async function chiediAlDataAgent(nome, percorso, corpo, { timeoutMs, segnale, nonRaggiungibile, nonRiuscita }) {
+  let risposta;
+  try {
+    risposta = await fetch(`${indirizzoDataAgent()}${percorso}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(corpo),
+      // Un'analisi già partita nel data agent finisce comunque: si smette solo di aspettarla
+      signal: segnaleConTimeout(timeoutMs, segnale),
+    });
+  } catch (errore) {
+    if (segnale?.aborted) return { testoErrore: "Richiesta annullata." };
+    console.error(`[${nome}] data agent non raggiungibile (${errore.name})`);
+    return { testoErrore: typeof nonRaggiungibile === "function" ? nonRaggiungibile(errore) : nonRaggiungibile };
+  }
+
+  if (!risposta.ok) {
+    // Il data agent restituisce già messaggi d'errore in italiano, senza dettagli sensibili
+    let dettaglio = "errore sconosciuto";
+    try {
+      const errore = await risposta.json();
+      if (typeof errore.detail === "string") dettaglio = errore.detail;
+    } catch {
+      // corpo non leggibile: resta il messaggio generico
+    }
+    console.error(`[${nome}] il data agent ha risposto con stato ${risposta.status}`);
+    return { testoErrore: nonRiuscita(dettaglio) };
+  }
+  return { dati: await risposta.json() };
+}
+
+/** Cerca nel manuale le sezioni pertinenti alla domanda; all'LLM passa ogni sezione con file e titolo. */
 async function cerca_procedure(domanda, segnaleRichiesta) {
   // La ricerca in ChromaDB non si può interrompere a metà: si evita solo di iniziarla
-  if (segnaleRichiesta?.aborted) return { testoPerLLM: "Richiesta annullata.", fonti: [], chiamateOpenAI: 0 };
+  if (segnaleRichiesta?.aborted) return { testoPerLLM: "Richiesta annullata.", fonti: [] };
 
   let risultati;
   try {
     risultati = await cercaProcedure(domanda, NUMERO_RISULTATI);
   } catch (errore) {
-    // Nel log solo il tipo di errore: il messaggio originale potrebbe contenere dati sensibili
     console.error(`[cerca_procedure] ricerca non riuscita (${errore.name})`);
     return {
       testoPerLLM: "Errore: la ricerca nel manuale non è al momento disponibile. Avvisa lo Store Manager che non è possibile consultare le procedure e di riprovare più tardi.",
       fonti: [],
-      // la domanda viene comunque trasformata in embedding prima dell'eventuale errore
-      chiamateOpenAI: 1,
     };
   }
 
-  // Tengo solo le sezioni abbastanza vicine alla domanda
   const pertinenti = risultati.filter((r) => r.distanza <= DISTANZA_MASSIMA);
   if (pertinenti.length === 0) {
-    return { testoPerLLM: "Nessuna sezione pertinente trovata nel manuale", fonti: [], chiamateOpenAI: 1 };
+    return { testoPerLLM: "Nessuna sezione pertinente trovata nel manuale", fonti: [] };
   }
 
   const fonti = pertinenti.map((r) => ({ file: r.metadati.file, sezione: r.metadati.sezione }));
@@ -77,81 +94,38 @@ async function cerca_procedure(domanda, segnaleRichiesta) {
     pertinenti
       .map((r) => `[File: ${r.metadati.file} | Sezione: ${r.metadati.sezione}]\n${r.testo}`)
       .join("\n\n---\n\n") +
-    // Le sezioni mostrate al front end saranno solo quelle che l'LLM dichiara di aver usato
+    // Al front end andranno solo le sezioni che l'LLM dichiara di aver usato
     "\n\nAlla fine della risposta elenca le sezioni che hai usato davvero tra una riga [FONTI] " +
     "e una riga [/FONTI], con i titoli esatti separati da punto e virgola. Non elencare le sezioni non usate.";
 
-  return { testoPerLLM, fonti, chiamateOpenAI: 1 };
+  return { testoPerLLM, fonti };
 }
 
-/**
- * Fa analizzare la domanda al data agent (POST /analizza).
- * All'LLM passa solo il testo della risposta: URL del grafico e riepilogo
- * della pulizia vengono conservati per il front end.
- */
+/** Fa analizzare la domanda al data agent (POST /analizza). All'LLM passa solo il testo della risposta. */
 async function analizza_dati(domanda, segnaleRichiesta, scenario) {
-  const erroreGenerico = {
-    grafico: null,
-    pulizia: null,
-    chiamateOpenAI: CHIAMATE_MASSIME_DATA_AGENT,
-  };
+  const { dati, testoErrore } = await chiediAlDataAgent("analizza_dati", "/analizza", { domanda, scenario }, {
+    timeoutMs: TIMEOUT_DATA_AGENT_MS,
+    segnale: segnaleRichiesta,
+    nonRaggiungibile: (errore) => (errore.name === "TimeoutError"
+      ? "Errore: l'analisi dei dati ha impiegato più di 120 secondi ed è stata interrotta. Avvisa lo Store Manager e suggerisci di riprovare con una domanda più semplice."
+      : "Errore: il servizio di analisi dei dati non risponde. Avvisa lo Store Manager che al momento non è possibile analizzare i dati del negozio e di riprovare più tardi."),
+    nonRiuscita: (dettaglio) => `Errore: l'analisi dei dati non è riuscita (${dettaglio}). Avvisa lo Store Manager e non inventare numeri.`,
+  });
+  if (testoErrore) return { testoPerLLM: testoErrore };
 
-  let risposta;
-  try {
-    risposta = await fetch(`${indirizzoDataAgent()}/analizza`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      // Lo scenario (solo l'id) dice al data agent quale data e quale negozio usare
-      body: JSON.stringify({ domanda, scenario }),
-      // Nota: l'analisi già partita nel data agent finisce comunque; si smette solo di aspettarla
-      signal: segnaleConTimeout(TIMEOUT_DATA_AGENT_MS, segnaleRichiesta),
-    });
-  } catch (errore) {
-    // Servizio spento oppure tempo scaduto
-    if (segnaleRichiesta?.aborted) return { ...erroreGenerico, testoPerLLM: "Richiesta annullata." };
-    const tempoScaduto = errore.name === "TimeoutError";
-    console.error(`[analizza_dati] data agent non raggiungibile (${errore.name})`);
-    return {
-      ...erroreGenerico,
-      testoPerLLM: tempoScaduto
-        ? "Errore: l'analisi dei dati ha impiegato più di 120 secondi ed è stata interrotta. Avvisa lo Store Manager e suggerisci di riprovare con una domanda più semplice."
-        : "Errore: il servizio di analisi dei dati non risponde. Avvisa lo Store Manager che al momento non è possibile analizzare i dati del negozio e di riprovare più tardi.",
-    };
-  }
-
-  if (!risposta.ok) {
-    // Il data agent restituisce già messaggi d'errore in italiano, senza dettagli sensibili
-    let dettaglio = "errore sconosciuto";
-    try {
-      const corpo = await risposta.json();
-      if (typeof corpo.detail === "string") dettaglio = corpo.detail;
-    } catch {
-      // corpo non leggibile: resta il messaggio generico
-    }
-    console.error(`[analizza_dati] il data agent ha risposto con stato ${risposta.status}`);
-    return {
-      ...erroreGenerico,
-      testoPerLLM: `Errore: l'analisi dei dati non è riuscita (${dettaglio}). Avvisa lo Store Manager e non inventare numeri.`,
-    };
-  }
-
-  const dati = await risposta.json();
   return {
     testoPerLLM: dati.risposta,
     grafico: dati.grafico || null,
     pulizia: dati.pulizia ?? null,
     calcolo: calcolo("codice", dati.codice),
-    chiamateOpenAI: CHIAMATE_MASSIME_DATA_AGENT,
-    // Token usati dal data agent: contano nella risposta e nel tetto giornaliero
+    // Contano nella risposta e nel tetto giornaliero
     token: Number.isFinite(dati.token) ? dati.token : 0,
   };
 }
 
-// Formattazione dei numeri all'italiana per il testo passato all'LLM
+// Numeri all'italiana per il testo passato all'LLM
 const euro = (n) => n.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
 const numero = (n) => n.toLocaleString("it-IT", { maximumFractionDigits: 2 });
-
-// "1 giorno" / "3 giorni"
 const giorni = (n) => (n === 1 ? "1 giorno" : `${n} giorni`);
 
 // Esito di un controllo su più giorni consecutivi (scarti, rotture), già deciso dal codice
@@ -163,14 +137,14 @@ function esitoConsecutivo({ anomalia, giorniSopra, giorniPerAnomalia, sopraIeri,
   return `sotto ${nomeLimite}, non è un'anomalia`;
 }
 
-// Riga delle eccedenze donate per l'LLM: solo chilogrammi, nessuna conversione
+// Eccedenze donate: solo chilogrammi, nessuna conversione
 function righeEccedenze(e) {
   if (!e) return [];
   return [`- eccedenze donate (in kg): ieri ${numero(e.ieri)} kg; nell'ultima settimana completa, dal ${e.settimana_dal} al ${e.settimana_al}, ${numero(e.settimana)} kg`];
 }
 
-// Trasforma KPI, stato dei controlli e anomalie del briefing in un testo compatto per l'LLM.
-// Lo stato di ogni controllo è già deciso dal codice: l'LLM non deve confrontare valori e soglie.
+// KPI, controlli e anomalie del briefing in un testo compatto per l'LLM.
+// L'esito di ogni controllo è già deciso dal codice: l'LLM non deve confrontare valori e soglie.
 function testoBriefing({ kpi, controlli, anomalie, riconoscimenti = [] }) {
   const righe = [
     `KPI di ieri, ${kpi.giorno_settimana} ${kpi.data}, negozio ${kpi.negozio}:`,
@@ -228,7 +202,6 @@ function testoBriefing({ kpi, controlli, anomalie, riconoscimenti = [] }) {
     });
   }
 
-  // Riconoscimenti: già decisi dal codice, separati dalle anomalie
   righe.push("");
   if (riconoscimenti.length === 0) {
     righe.push("Riconoscimenti: nessuno.");
@@ -243,152 +216,69 @@ function testoBriefing({ kpi, controlli, anomalie, riconoscimenti = [] }) {
   return righe.join("\n");
 }
 
-/**
- * Chiede al data agent il briefing del mattino (POST /briefing), calcolato senza LLM.
- * All'LLM passa solo KPI e anomalie in testo compatto: grafico e pulizia vanno al front end.
- */
+/** Briefing del mattino (POST /briefing), calcolato senza LLM. All'LLM va solo il testo compatto. */
 async function prepara_briefing(segnaleRichiesta, scenario) {
-  const erroreGenerico = { grafico: null, pulizia: null, chiamateOpenAI: 0 };
+  const { dati, testoErrore } = await chiediAlDataAgent("prepara_briefing", "/briefing", { scenario }, {
+    timeoutMs: TIMEOUT_BRIEFING_MS,
+    segnale: segnaleRichiesta,
+    nonRaggiungibile: "Errore: il servizio che prepara il briefing non risponde. Avvisa lo Store Manager che al momento il briefing non è disponibile e di riprovare più tardi.",
+    nonRiuscita: (dettaglio) => `Errore: il briefing non è stato preparato (${dettaglio}). Avvisa lo Store Manager e non inventare numeri.`,
+  });
+  if (testoErrore) return { testoPerLLM: testoErrore };
 
-  let risposta;
-  try {
-    risposta = await fetch(`${indirizzoDataAgent()}/briefing`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scenario }),
-      signal: segnaleConTimeout(TIMEOUT_BRIEFING_MS, segnaleRichiesta),
-    });
-  } catch (errore) {
-    console.error(`[prepara_briefing] data agent non raggiungibile (${errore.name})`);
-    return {
-      ...erroreGenerico,
-      testoPerLLM: "Errore: il servizio che prepara il briefing non risponde. Avvisa lo Store Manager che al momento il briefing non è disponibile e di riprovare più tardi.",
-    };
-  }
-
-  if (!risposta.ok) {
-    let dettaglio = "errore sconosciuto";
-    try {
-      const corpo = await risposta.json();
-      if (typeof corpo.detail === "string") dettaglio = corpo.detail;
-    } catch {
-      // corpo non leggibile: resta il messaggio generico
-    }
-    console.error(`[prepara_briefing] il data agent ha risposto con stato ${risposta.status}`);
-    return {
-      ...erroreGenerico,
-      testoPerLLM: `Errore: il briefing non è stato preparato (${dettaglio}). Avvisa lo Store Manager e non inventare numeri.`,
-    };
-  }
-
-  const dati = await risposta.json();
   return {
     testoPerLLM: testoBriefing(dati),
-    // I riconoscimenti vanno anche al front end, già calcolati (non scritti dall'LLM)
+    // Già calcolati dal codice, non scritti dall'LLM
     riconoscimenti: Array.isArray(dati.riconoscimenti) ? dati.riconoscimenti : [],
-    // Anomalie complete (con domanda_procedura): servono all'azione diretta del briefing
+    // Con domanda_procedura: servono all'azione diretta del briefing
     anomalie: Array.isArray(dati.anomalie) ? dati.anomalie : [],
-    // Eccedenze donate (kg di ieri e dell'ultima settimana completa): riga a parte nel front end
     eccedenze: dati.kpi?.eccedenze_donate_kg ?? null,
     calcolo: calcolo("regole", dati.regole),
     grafico: dati.grafico || null,
     pulizia: dati.pulizia ?? null,
-    chiamateOpenAI: 0, // il briefing è calcolato solo con pandas
   };
 }
 
 /**
- * Verifica le soglie del manuale nel periodo indicato (POST /soglie del data agent), senza LLM.
- * All'LLM passa solo il testo compatto dei controlli, già preparato dal data agent.
+ * Soglie del manuale nel periodo (POST /soglie), senza LLM.
  * @param {{inizio: string, fine: string}} periodo - date nel formato AAAA-MM-GG
  */
 async function controlla_soglie({ inizio, fine }, segnaleRichiesta, scenario) {
-  let risposta;
-  try {
-    risposta = await fetch(`${indirizzoDataAgent()}/soglie`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inizio, fine, scenario }),
-      signal: segnaleConTimeout(TIMEOUT_BRIEFING_MS, segnaleRichiesta),
-    });
-  } catch (errore) {
-    console.error(`[controlla_soglie] data agent non raggiungibile (${errore.name})`);
-    return {
-      testoPerLLM: "Errore: il controllo delle soglie non è disponibile. Avvisa lo Store Manager e non dire se le soglie sono superate.",
-      chiamateOpenAI: 0,
-    };
-  }
+  const { dati, testoErrore } = await chiediAlDataAgent("controlla_soglie", "/soglie", { inizio, fine, scenario }, {
+    timeoutMs: TIMEOUT_BRIEFING_MS,
+    segnale: segnaleRichiesta,
+    nonRaggiungibile: "Errore: il controllo delle soglie non è disponibile. Avvisa lo Store Manager e non dire se le soglie sono superate.",
+    nonRiuscita: (dettaglio) => `Errore nel controllo delle soglie: ${dettaglio}`,
+  });
+  if (testoErrore) return { testoPerLLM: testoErrore };
 
-  if (!risposta.ok) {
-    let dettaglio = "errore sconosciuto";
-    try {
-      const corpo = await risposta.json();
-      if (typeof corpo.detail === "string") dettaglio = corpo.detail;
-    } catch {
-      // corpo non leggibile: resta il messaggio generico
-    }
-    console.error(`[controlla_soglie] il data agent ha risposto con stato ${risposta.status}`);
-    return { testoPerLLM: `Errore nel controllo delle soglie: ${dettaglio}`, chiamateOpenAI: 0 };
-  }
-
-  const dati = await risposta.json();
   return {
     testoPerLLM: dati.testo,
-    chiamateOpenAI: 0, // solo pandas, nessuna chiamata a OpenAI
     calcolo: calcolo("regole", dati.regole),
-    // KPI del periodo e soglie superate: servono all'azione diretta del report per l'Area Manager
+    // KPI e soglie superate servono al report per l'Area Manager
     dati: { kpi: dati.kpi, testoKpi: dati.testo_kpi, superate: dati.superate ?? {}, controlli: dati.esito },
   };
 }
 
 /**
- * Confronta i tassi di scarto del negozio con quelli degli altri negozi nel periodo
- * (POST /confronto del data agent), senza LLM: solo rapporti, mai valori assoluti.
+ * Tassi di scarto del negozio confrontati con gli altri negozi (POST /confronto), senza LLM:
+ * solo rapporti, mai valori assoluti.
  * @param {{inizio: string, fine: string}} periodo - date nel formato AAAA-MM-GG
  */
 async function confronta_negozi({ inizio, fine }, segnaleRichiesta, scenario) {
-  let risposta;
-  try {
-    risposta = await fetch(`${indirizzoDataAgent()}/confronto`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inizio, fine, scenario }),
-      signal: segnaleConTimeout(TIMEOUT_BRIEFING_MS, segnaleRichiesta),
-    });
-  } catch (errore) {
-    console.error(`[confronta_negozi] data agent non raggiungibile (${errore.name})`);
-    return {
-      testoPerLLM: "Errore: il confronto tra negozi non è disponibile. Avvisa lo Store Manager e non inventare numeri.",
-      chiamateOpenAI: 0,
-    };
-  }
-
-  if (!risposta.ok) {
-    let dettaglio = "errore sconosciuto";
-    try {
-      const corpo = await risposta.json();
-      if (typeof corpo.detail === "string") dettaglio = corpo.detail;
-    } catch {
-      // corpo non leggibile: resta il messaggio generico
-    }
-    console.error(`[confronta_negozi] il data agent ha risposto con stato ${risposta.status}`);
-    return { testoPerLLM: `Errore nel confronto tra negozi: ${dettaglio}`, chiamateOpenAI: 0 };
-  }
-
-  const dati = await risposta.json();
-  return {
-    testoPerLLM: dati.testo,
-    chiamateOpenAI: 0, // solo pandas, nessuna chiamata a OpenAI
-    calcolo: calcolo("regole", dati.regole),
-  };
+  const { dati, testoErrore } = await chiediAlDataAgent("confronta_negozi", "/confronto", { inizio, fine, scenario }, {
+    timeoutMs: TIMEOUT_BRIEFING_MS,
+    segnale: segnaleRichiesta,
+    nonRaggiungibile: "Errore: il confronto tra negozi non è disponibile. Avvisa lo Store Manager e non inventare numeri.",
+    nonRiuscita: (dettaglio) => `Errore nel confronto tra negozi: ${dettaglio}`,
+  });
+  if (testoErrore) return { testoPerLLM: testoErrore };
+  return { testoPerLLM: dati.testo, calcolo: calcolo("regole", dati.regole) };
 }
 
-// Mappa nome dello strumento -> funzione, usata dal ciclo di function calling
 const STRUMENTI = { cerca_procedure, analizza_dati, prepara_briefing, controlla_soglie, confronta_negozi };
-
-// Strumenti che non ricevono il parametro "domanda"
 const STRUMENTI_SENZA_PARAMETRI = new Set(["prepara_briefing"]);
-// Strumenti che ricevono un periodo (inizio e fine) invece della domanda
+// Ricevono un periodo (inizio e fine) invece della domanda
 const STRUMENTI_CON_PERIODO = new Set(["controlla_soglie", "confronta_negozi"]);
 
 module.exports = {
