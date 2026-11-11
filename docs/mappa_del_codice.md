@@ -48,16 +48,50 @@ statistiche dei linguaggi.
 ## backend/ – Orchestratore (Node.js + Express)
 
 ### `server.js`
-Il cuore dell'orchestratore: rotte HTTP, sessioni in memoria, limiti di
-sicurezza e ciclo di function calling con l'LLM.
-- Rotte: `POST /api/chat`, `POST /api/azioni/:azione`, `POST /api/feedback`, `GET /api/scenari`, `GET /api/health`.
-- `rispondi()`: ciclo di function calling (al massimo 6 chiamate al modello, uno strumento alla volta).
+Solo l'avvio: `controllaConfigurazione()`, creazione dell'app (`app.js`),
+pulizia periodica delle sessioni e `listen`.
+
+### `app.js`
+L'applicazione Express: CORS, JSON (max 20 kB), rotte di `routes/`, front end
+compilato in produzione, gestore degli errori. `creaApp()`.
+
+### `config.js`
+Variabili d'ambiente (`.env`) e costanti: porte, modalità produzione, limiti
+(messaggio, memoria, iterazioni, token, sessioni), lingue, modello.
+- `controllaConfigurazione()`: senza `OPENAI_API_KEY` o `ORCHESTRATOR_MODEL` il server non parte.
+
+### `errori.js`
+- `ErroreUtente` (messaggio fisso in italiano + codice per il front end), `RichiestaAnnullata`.
+- `erroreOpenAI()`: errori di OpenAI tradotti in messaggi fissi (mai il testo originale).
+- `gestoreErrori()`: gestore centralizzato di Express.
+
+### `sessioni.js`
+Memoria delle conversazioni (max 100, scadenza 1 ora, valida solo per lo stesso scenario).
+- `leggiSessione()`, `salvaSessione()`, `pulisciSessioni()`, `controllaSessione()`.
+
+### `limiti.js`
+- `limiteFrequenza`: rate limit condiviso da chat, azioni e valutazioni.
+- `tokenUsatiOggi()`, `aggiungiTokenOggi()`, `controllaTettoGiornaliero()`: tetto di token del giorno.
+- `prenotaChiamate()`, `chiamateOpenAITotali()`: tetto facoltativo di chiamate OpenAI (`MAX_CHIAMATE_OPENAI`).
+
+### `orchestratore.js`
+Il ciclo di function calling con l'LLM.
+- `rispondi()`: al massimo 6 chiamate al modello, uno strumento alla volta.
 - `creaCompletamento()`: una chiamata a OpenAI con i controlli (annullamento, tetto giornaliero di token, tetto di chiamate) e gli errori tradotti in messaggi fissi.
+- `chiamaModello()`: una chiamata senza strumenti, per le azioni dirette.
 - `eseguiStrumento()`: valida gli argomenti scelti dal modello, prenota le chiamate, esegue lo strumento e raccoglie fonti, grafici, calcoli.
 - `completaRisposta()`: regole fisse sul testo finale (fonti dichiarate, bozza, niente domanda finale, fonte ufficiale in inglese).
 - `promptSistema()`, `componiMessaggi()`: prompt per scenario (statico, per la cache di OpenAI) + memoria + lingua.
 - `dateDelloScenario()`: date dello scenario dal data agent; se non arrivano, errore 503 `data_agent_non_raggiungibile`.
-- `leggiSessione()`, `salvaSessione()`, `leggiScenario()`, `controllaSessione()`: sessioni (max 100, scadenza 1 ora) e validazioni.
+
+### `routes/`
+- `comune.js`: `gestisciRichiesta()`, la struttura comune di chat e azioni (annullamento con
+  AbortController, validazione, tetto giornaliero, memoria della sessione, id per i pollici, log);
+  `leggiLingua()`, `leggiScenario()`.
+- `chat.js`: `POST /api/chat` (validazione del messaggio, poi `rispondi()`).
+- `azioni.js`: `POST /api/azioni/:azione` (briefing, soglie, report con `azioni.js`).
+- `feedback.js`: `POST /api/feedback`.
+- `servizi.js`: `GET /api/grafici/:nome`, `GET /api/scenari`, `GET /api/health`.
 
 ### `strumenti.js`
 Gli strumenti che l'LLM può chiamare. Ognuno restituisce `testoPerLLM` (l'unica
@@ -196,7 +230,7 @@ date degli scenari, briefing, soglie, confronto, grafici, sicurezza). Il noteboo
 ### 1. Briefing del mattino (pulsante)
 
 1. `Sidebar.jsx` → `App.eseguiAzione("briefing")` → `POST /api/azioni/briefing` con sessione, lingua e id dello scenario.
-2. `server.js`: limite di frequenza, validazione di scenario e sessione, tetto giornaliero → `azioni.eseguiAzione()`.
+2. `routes/azioni.js` con `routes/comune.gestisciRichiesta()`: limite di frequenza, validazione di scenario e sessione, tetto giornaliero → `azioni.eseguiAzione()`.
 3. `azioni.briefing()`: date dello scenario dal data agent (`GET /scenari/{id}/date`, chieste una volta e tenute in memoria) → `strumenti.prepara_briefing()` → `POST /briefing` del data agent.
 4. `app.briefing()` → `briefing.prepara_briefing()` su una copia dei dati fino a ieri: KPI, `controlla_soglie()` sulle serie che arrivano a ieri, anomalie, `_stato_controlli()`, riconoscimenti, eccedenze, grafico. Nessun LLM.
 5. Per ogni anomalia `cerca_procedure()` con la sua `domanda_procedura` (ChromaDB).
@@ -207,7 +241,7 @@ date degli scenari, briefing, soglie, confronto, grafici, sicurezza). Il noteboo
 ### 2. Domanda sui dati ("Quale reparto ha più scarti in rapporto alle vendite questo mese?")
 
 1. `Composer.jsx` → `App.invia()` → `POST /api/chat`.
-2. `server.rispondi()`: il modello riceve prompt (con le date dello scenario dal data agent), memoria e domanda e sceglie `analizza_dati` con una domanda completa e autonoma.
+2. `routes/chat.js` → `orchestratore.rispondi()`: il modello riceve prompt (con le date dello scenario dal data agent), memoria e domanda e sceglie `analizza_dati` con una domanda completa e autonoma.
 3. `eseguiStrumento()` prenota 5 chiamate (caso peggiore) → `strumenti.analizza_dati()` → `POST /analizza`.
 4. `app.esegui_analisi()`: copia dei dati fino a ieri, prompt con data e negozio dello scenario, pandas agent (codice Python eseguito sui dati, max 5 passi).
 5. Filtro dei segreti sulla risposta; il codice eseguito va in "Come l'ho calcolato"; il blocco JSON del grafico viene validato e disegnato dal codice.

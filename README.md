@@ -48,6 +48,7 @@ manuale, azioni previste, eccedenze donate:
 ├── backend/           ← orchestratore Node.js
 │   ├── prompts/       ← prompt di sistema e definizioni degli strumenti
 │   ├── rag/           ← indicizzazione e ricerca nel manuale (ChromaDB)
+│   ├── routes/        ← rotte HTTP (chat, azioni, valutazioni, servizi)
 │   └── scenari.json   ← scenari della demo (letti anche da data agent e front end)
 ├── data_agent/        ← servizio Python: pandas agent, briefing, grafici, pulizia
 │   └── tests/         ← test pytest (nessuna chiamata a OpenAI)

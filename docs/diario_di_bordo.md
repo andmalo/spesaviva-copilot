@@ -188,3 +188,23 @@
   funzione ed endpoint); in test_feedback.js un finto data agent
   verifica che le date si chiedano una sola volta e che senza date la
   chat risponda 503.
+
+## 2026-11-11 – Revisione dei docenti, parte 4: server.js diviso in moduli
+- Cosa non funzionava: server.js aveva quasi 700 righe con tutto
+  insieme (configurazione, sessioni, limiti, ciclo di function
+  calling, rotte), e le rotte /api/chat e /api/azioni/:azione
+  ripetevano la stessa struttura.
+- Soluzione, solo riorganizzazione: config.js, errori.js,
+  sessioni.js, limiti.js, orchestratore.js, app.js (Express) e
+  routes/ (chat, azioni, feedback, servizi); server.js fa solo
+  l'avvio. La struttura comune di chat e azioni (AbortController,
+  validazione, tetto, sessione, id per i pollici, log) è una sola
+  funzione, gestisciRichiesta() in routes/comune.js.
+- Verifica: test invariati e superati; in più, lo stesso script
+  (finto OpenAI, data agent vero) contro il codice di prima e quello
+  nuovo: risposte identiche per chat, azioni "soglie" nei tre
+  scenari ed errori, e identici anche i messaggi mandati al modello.
+- Unica differenza: le righe di log di richiesta annullata o non
+  riuscita ora hanno lo stesso formato per chat e azioni (nome
+  dell'errore e chiamate OpenAI totali in entrambe). I log si rifanno
+  comunque nella parte 5.
