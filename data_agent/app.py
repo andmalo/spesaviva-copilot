@@ -41,7 +41,8 @@ from pydantic import BaseModel
 from briefing import (MESI, REGOLE_BRIEFING, REGOLE_CONFRONTO, REGOLE_SOGLIE, confronta_negozi, controlla_soglie,
                       kpi_periodo, prepara_briefing, soglie_superate, testo_confronto, testo_kpi, testo_soglie)
 from grafici import disegna_grafico, estrai_blocco_grafico
-from pulizia import pulisci_dati, riepilogo_pulizia
+from pulizia import riepilogo_pulizia
+from validazione import DatasetNonValido, carica_e_valida
 
 CARTELLA_AGENTE = Path(__file__).resolve().parent
 CARTELLA_PROGETTO = CARTELLA_AGENTE.parent
@@ -114,8 +115,9 @@ def contiene_dati_riservati(testo: str) -> bool:
 
 
 def carica_dati_puliti() -> None:
-    """Legge e pulisce il CSV; conserva i dati come bytes con l'impronta sha256 (all'avvio o se alterati)."""
-    df_pulito, report = pulisci_dati(pd.read_csv(PERCORSO_CSV))
+    """Legge, valida e pulisce il CSV; conserva i dati come bytes con l'impronta sha256
+    (all'avvio o se alterati). Se il CSV non è valido solleva DatasetNonValido."""
+    df_pulito, report = carica_e_valida(PERCORSO_CSV)
     stato["dati"] = pickle.dumps(df_pulito)
     stato["impronta"] = hashlib.sha256(stato["dati"]).hexdigest()
     stato["riepilogo_pulizia"] = riepilogo_pulizia(report)
@@ -202,7 +204,12 @@ async def ciclo_di_vita(app: FastAPI):
     if modello_data_agent() == "nome-del-modello":
         raise RuntimeError("Il modello del data agent nel file .env contiene ancora il valore di esempio")
 
-    carica_dati_puliti()
+    try:
+        carica_dati_puliti()
+    except DatasetNonValido as errore:
+        # Il servizio non parte a metà: senza dati validi si ferma con il motivo
+        logger.error("Dataset non valido, il data agent non parte. %s", errore)
+        raise
     stato["testo_prompt"] = PERCORSO_PROMPT.read_text(encoding="utf-8")
     stato["scenari"] = json.loads(PERCORSO_SCENARI.read_text(encoding="utf-8"))
     cancellati = pulisci_grafici_vecchi()

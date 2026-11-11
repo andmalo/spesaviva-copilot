@@ -134,3 +134,28 @@
   data_agent/ al percorso dei moduli, per l'import di pulizia.
   .gitattributes lo segna come documentazione, così GitHub non lo
   conta nelle statistiche dei linguaggi.
+
+## 2026-11-11 – Revisione dei docenti, parte 2: validazione del dataset
+- Cosa non funzionava: il data agent accettava qualunque CSV. Senza
+  una colonna, o con un negozio NEG09, partiva lo stesso e falliva
+  dopo, a metà di una richiesta, oppure dava numeri sbagliati.
+- Vincolo: il CSV è sporco di proposito e la pulizia lo sistema,
+  quindi la validazione non deve rifiutare lo sporco previsto.
+- Soluzione: data_agent/validazione.py, in due momenti.
+  - Prima della pulizia (struttura): colonne attese tutte presenti,
+    quelle in più solo segnalate nel log, almeno una riga.
+  - Dopo la pulizia (valori): date dal 2020 a oggi, negozi solo
+    NEG01-NEG06, nessun duplicato data + negozio, vendite, scarti e
+    ore non negativi, colonne numeriche di tipo numerico, date
+    illeggibili sotto l'1%.
+  - Se un controllo fallisce: eccezione DatasetNonValido con il
+    controllo, il numero di righe e un esempio. All'avvio il data
+    agent si ferma con quel messaggio.
+- Due cose emerse dai test:
+  - con un testo in una colonna numerica la pulizia andava in errore
+    (TypeError) prima della validazione: il controllo dei tipi si fa
+    anche prima della pulizia;
+  - la pulizia unisce come duplicati le righe con data illeggibile
+    dello stesso negozio, quindi la quota di date illeggibili si
+    calcola dal report della pulizia sulle righe lette, non sulle
+    righe rimaste.

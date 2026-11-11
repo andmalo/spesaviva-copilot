@@ -140,6 +140,17 @@ Pulizia del CSV in memoria (il file non si modifica): date in tre formati, nomi
 dei negozi, duplicati, valori impossibili e anomali, colonna `settimana`.
 - `pulisci_dati()`, `riepilogo_pulizia()`.
 
+### `validazione.py`
+Validazione del CSV in due momenti, intorno alla pulizia: lo sporco previsto
+passa, ciò che la pulizia non può sistemare ferma il caricamento.
+- `controlla_struttura()`: prima della pulizia; colonne attese tutte presenti
+  (quelle in più solo nel log), almeno una riga, colonne numeriche di tipo numerico.
+- `controlla_valori()`: dopo la pulizia; date dal 2020 a oggi, date illeggibili
+  sotto l'1%, negozi solo NEG01–NEG06, nessun duplicato data + negozio,
+  vendite, scarti e ore non negativi.
+- `carica_e_valida()`: lettura, controlli e pulizia in un'unica funzione (la usa `app.py`).
+- `DatasetNonValido`: l'eccezione, con un messaggio in italiano (controllo, righe, esempio).
+
 ### `prompt_data_agent.txt`, `tests/`
 Prompt del pandas agent (calibrato con i test); test pytest (pulizia, briefing,
 soglie, confronto, grafici, sicurezza). Il notebook della fase di prototipazione

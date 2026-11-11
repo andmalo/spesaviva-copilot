@@ -105,6 +105,14 @@ Con i servizi avviati, <http://localhost:5173/api/health> deve rispondere:
 Se `chromadb` o `dataAgent` risultano `non raggiungibile`, controlla l'output
 del servizio corrispondente.
 
+All'avvio il data agent valida `data/dati_negozi.csv` (prima e dopo la
+pulizia, vedi `data_agent/validazione.py`). Lo sporco previsto (date in tre
+formati, nomi dei negozi, duplicati) viene sistemato dalla pulizia; se invece
+manca una colonna o restano valori impossibili (date fuori dal 2020–oggi,
+negozi diversi da NEG01–NEG06, valori negativi) il data agent **non parte** e
+scrive quale controllo è fallito, ad esempio
+`Dataset non valido, il data agent non parte. Controllo della struttura fallito: mancano 1 colonne attese (evento).`
+
 ## In alternativa: avvio manuale dei servizi
 
 I servizi sono quattro e vanno avviati **in quest'ordine**, ognuno in un
@@ -163,7 +171,7 @@ docker run --rm --memory=512m --cpus=0.1 -p 10000:10000 --env-file .env spesaviv
 Senza chiamate a OpenAI:
 
 ```powershell
-cd data_agent; ..\.venv\Scripts\python.exe -m pytest   # pulizia, briefing, soglie, confronto, grafici, sicurezza
+cd data_agent; ..\.venv\Scripts\python.exe -m pytest   # pulizia, validazione, briefing, soglie, confronto, grafici, sicurezza
 cd backend;    npm test                                  # scenari della demo e valutazioni (con un finto OpenAI)
 cd frontend;   npm run build; npm run lint
 ```
