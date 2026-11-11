@@ -105,6 +105,13 @@ Con i servizi avviati, <http://localhost:5173/api/health> deve rispondere:
 Se `chromadb` o `dataAgent` risultano `non raggiungibile`, controlla l'output
 del servizio corrispondente.
 
+Le date dello scenario ("ieri", "questa settimana" = gli ultimi 7 giorni fino a
+ieri, mese corrente, ultima settimana completa) le calcola solo il data agent
+(`GET /scenari/{id}/date`); il back end le chiede la prima volta che servono e
+le tiene in memoria. Per questo **anche le domande sul manuale richiedono il
+data agent acceso**: se non risponde, la chat restituisce
+`Il servizio di analisi dei dati non è raggiungibile: riprova tra poco.`
+
 All'avvio il data agent valida `data/dati_negozi.csv` (prima e dopo la
 pulizia, vedi `data_agent/validazione.py`). Lo sporco previsto (date in tre
 formati, nomi dei negozi, duplicati) viene sistemato dalla pulizia; se invece
@@ -171,7 +178,7 @@ docker run --rm --memory=512m --cpus=0.1 -p 10000:10000 --env-file .env spesaviv
 Senza chiamate a OpenAI:
 
 ```powershell
-cd data_agent; ..\.venv\Scripts\python.exe -m pytest   # pulizia, validazione, briefing, soglie, confronto, grafici, sicurezza
+cd data_agent; ..\.venv\Scripts\python.exe -m pytest   # pulizia, validazione, date degli scenari, briefing, soglie, confronto, grafici, sicurezza
 cd backend;    npm test                                  # scenari della demo e valutazioni (con un finto OpenAI)
 cd frontend;   npm run build; npm run lint
 ```

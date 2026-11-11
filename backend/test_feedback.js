@@ -1,6 +1,7 @@
 // Test della valutazione delle risposte, SENZA chiamate a OpenAI.
-// Avvia un finto OpenAI locale (risponde sempre con lo stesso testo, senza strumenti) e il server
-// vero puntato su di esso con una chiave finta; i voti vanno in un file temporaneo.
+// Avvia un finto OpenAI locale (risponde sempre con lo stesso testo, senza strumenti), un finto data agent
+// (solo le date degli scenari) e il server vero puntato su di loro con una chiave finta;
+// i voti vanno in un file temporaneo.
 // Controlla: id delle risposte, voti validi e non validi, cambio di voto, limite di frequenza,
 // righe del file e riepilogo per strumento. Alla fine ferma il server.
 //
@@ -13,6 +14,7 @@ const { spawn, execSync, execFileSync } = require("node:child_process");
 
 const PORTA_BACKEND = 3101;   // porte diverse da quelle normali: il test non tocca il progetto avviato
 const PORTA_OPENAI = 3102;
+const PORTA_DATA_AGENT = 3103;
 const URL = `http://127.0.0.1:${PORTA_BACKEND}`;
 const LIMITE = 18;            // richieste al minuto per questo test (bastano per tutte le verifiche prima del 429)
 const FILE = path.join(os.tmpdir(), `feedback_test_${process.pid}.jsonl`);
@@ -41,6 +43,26 @@ const openaiFinto = http.createServer((req, res) => {
   });
 });
 
+// Finto data agent: solo le date degli scenari (GET /scenari/{id}/date), che servono al prompt di sistema.
+// Per "fornitore" risponde con un errore, per provare il messaggio quando le date non arrivano.
+const DATE_FINTE = {
+  oggi: "2025-07-17", ieri: "2025-07-16", inizio_settimana: "2025-07-10",
+  mese_corrente: "luglio 2025, il mese in corso (dati dal 1 al 16 luglio 2025)",
+  ultima_settimana_completa: { inizio: "2025-07-07", fine: "2025-07-13" },
+  oggi_esteso: "giovedì 17 luglio 2025", ieri_esteso: "mercoledì 16 luglio 2025", inizio_settimana_esteso: "giovedì 10 luglio 2025",
+};
+const richiesteDate = {};
+const dataAgentFinto = http.createServer((req, res) => {
+  const id = req.url.match(/^\/scenari\/([^/]+)\/date$/)?.[1];
+  if (id) richiesteDate[id] = (richiesteDate[id] ?? 0) + 1;
+  if (id === "caldo") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ scenario: id, ...DATE_FINTE }));
+  }
+  res.writeHead(500, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ detail: "errore finto" }));
+});
+
 async function post(percorso, corpo) {
   const r = await fetch(`${URL}${percorso}`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo),
@@ -50,6 +72,7 @@ async function post(percorso, corpo) {
 
 async function main() {
   await new Promise((r) => openaiFinto.listen(PORTA_OPENAI, "127.0.0.1", r));
+  await new Promise((r) => dataAgentFinto.listen(PORTA_DATA_AGENT, "127.0.0.1", r));
   const server = spawn(process.execPath, ["server.js"], {
     cwd: __dirname,
     env: {
@@ -57,6 +80,7 @@ async function main() {
       OPENAI_API_KEY: "chiave-finta-per-il-test",
       OPENAI_BASE_URL: `http://127.0.0.1:${PORTA_OPENAI}/v1`,
       BACKEND_PORT: String(PORTA_BACKEND),
+      DATA_AGENT_PORT: String(PORTA_DATA_AGENT),
       LIMITE_RICHIESTE_MINUTO: String(LIMITE),
       FILE_FEEDBACK: FILE,
     },
@@ -77,6 +101,12 @@ async function main() {
     const r2 = await post("/api/chat", { sessionId: sessione, messaggio: "E dopo?", scenario: "caldo" }); richieste++;
     verifica(`la chat restituisce id_messaggio (stato ${r1.stato})`, r1.stato === 200 && typeof r1.corpo.id_messaggio === "string");
     verifica("id diversi per risposte diverse", r1.corpo.id_messaggio !== r2.corpo.id_messaggio);
+
+    console.log("\nDate dello scenario (dal data agent)");
+    verifica(`date chieste al data agent una sola volta per 2 domande: ${richiesteDate.caldo}`, richiesteDate.caldo === 1);
+    const senzaDate = await post("/api/chat", { sessionId: crypto.randomUUID(), messaggio: "Ciao", scenario: "fornitore" }); richieste++;
+    verifica(`date non disponibili: stato ${senzaDate.stato}, codice ${senzaDate.corpo?.codice}`,
+      senzaDate.stato === 503 && senzaDate.corpo?.codice === "data_agent_non_raggiungibile");
 
     console.log("\nVoti non validi");
     const casi = [
@@ -140,6 +170,7 @@ async function main() {
     if (process.platform === "win32") execSync(`taskkill /PID ${server.pid} /T /F`, { stdio: "ignore" });
     else server.kill();
     openaiFinto.close();
+    dataAgentFinto.close();
     fs.rmSync(FILE, { force: true });
   }
 }

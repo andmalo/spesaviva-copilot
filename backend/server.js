@@ -20,7 +20,8 @@ const {
 const { creaClient } = require("./rag/config");
 const { separaBozza, separaFonti, togliDomandaFinale, aggiungiFonteUfficiale } = require("./testo_risposte");
 const { AZIONI, creaAzioni } = require("./azioni");
-const { SCENARI, trovaScenario, dateScenario } = require("./scenari");
+const { SCENARI, trovaScenario } = require("./scenari");
+const { dateScenario, DateNonDisponibili } = require("./date_scenario");
 const { creaFeedback } = require("./feedback");
 
 // ---------------------------------------------------------------------------
@@ -82,19 +83,31 @@ const CARTELLA_PROMPT = path.join(__dirname, "prompts");
 const MODELLO_PROMPT = fs.readFileSync(path.join(CARTELLA_PROMPT, "sistema.txt"), "utf-8");
 const DEFINIZIONI_STRUMENTI = JSON.parse(fs.readFileSync(path.join(CARTELLA_PROMPT, "strumenti.json"), "utf-8"));
 
-// Prompt di sistema di uno scenario, con data e negozio nei segnaposto (stessa logica del data agent:
-// ieri = oggi meno 1 giorno, inizio settimana = ieri meno 6 giorni, mese corrente = mese di ieri).
+// Date di riferimento dello scenario, calcolate dal data agent (date_scenario.js).
+// Se il data agent non risponde la richiesta non riesce, con un messaggio chiaro.
+async function dateDelloScenario(scenario) {
+  try {
+    return await dateScenario(scenario);
+  } catch (errore) {
+    if (errore instanceof DateNonDisponibili) {
+      throw new ErroreUtente(503, "Il servizio di analisi dei dati non è raggiungibile: riprova tra poco.", "data_agent_non_raggiungibile");
+    }
+    throw errore;
+  }
+}
+
+// Prompt di sistema di uno scenario, con data e negozio nei segnaposto (date dal data agent).
 // Si costruisce una volta per scenario: resta identico tra le chiamate, così vale la cache di OpenAI.
 const promptPerScenario = new Map();
-function promptSistema(scenario) {
+async function promptSistema(scenario) {
   if (!promptPerScenario.has(scenario.id)) {
-    const d = dateScenario(scenario);
+    const d = await dateDelloScenario(scenario);
     promptPerScenario.set(scenario.id, MODELLO_PROMPT
       .replaceAll("{negozio}", scenario.negozio)
-      .replaceAll("{oggi}", d.oggiEsteso)
-      .replaceAll("{ieri}", d.ieriEsteso)
-      .replaceAll("{inizio_settimana}", d.inizioSettimanaEsteso)
-      .replaceAll("{mese_corrente}", d.meseCorrente));
+      .replaceAll("{oggi}", d.oggi_esteso)
+      .replaceAll("{ieri}", d.ieri_esteso)
+      .replaceAll("{inizio_settimana}", d.inizio_settimana_esteso)
+      .replaceAll("{mese_corrente}", d.mese_corrente));
   }
   return promptPerScenario.get(scenario.id);
 }
@@ -190,9 +203,9 @@ function leggiLingua(valore) {
 
 // Messaggi per il modello: prompt di sistema (sempre uguale, così resta nella cache di OpenAI),
 // memoria della sessione, lingua della risposta e infine il messaggio o le istruzioni dell'azione
-function componiMessaggi(storico, lingua, contenuto, scenario) {
+async function componiMessaggi(storico, lingua, contenuto, scenario) {
   return [
-    { role: "system", content: promptSistema(scenario) },
+    { role: "system", content: await promptSistema(scenario) },
     ...storico.slice(-MESSAGGI_IN_MEMORIA),
     { role: "system", content: `Lingua della risposta: ${LINGUE[lingua]}.` },
     { role: "user", content: contenuto },
@@ -390,7 +403,7 @@ function completaRisposta(testoFinale, esito, lingua) {
  * @param {string} lingua - "it" oppure "en"
  */
 async function rispondi(storico, messaggio, segnale, lingua, scenario) {
-  const messaggi = componiMessaggi(storico, lingua, messaggio, scenario);
+  const messaggi = await componiMessaggi(storico, lingua, messaggio, scenario);
   const esito = {
     risposta: null, strumenti: [], sezioni_consultate: [], grafici: [], pulizia: null,
     riconoscimenti: [], bozza_riconoscimento: null, eccedenze_donate: null, calcoli: [], token: 0,
@@ -457,7 +470,7 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
 // ---------------------------------------------------------------------------
 
 // Azioni dirette dei pulsanti (briefing, soglie, report), con gli stessi servizi della chat
-const azioni = creaAzioni({ chiamaModello, componiMessaggi });
+const azioni = creaAzioni({ chiamaModello, componiMessaggi, dateScenario: dateDelloScenario });
 
 // Valutazioni delle risposte: una riga per voto in feedback.jsonl (FILE_FEEDBACK solo per i test)
 const feedback = creaFeedback({

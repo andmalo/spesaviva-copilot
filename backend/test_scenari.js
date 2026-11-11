@@ -10,8 +10,8 @@ const { spawn, execSync } = require("node:child_process");
 
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
 
-const { SCENARI, dateScenario } = require("./scenari");
-const { ultimaSettimanaCompleta } = require("./azioni");
+const { SCENARI } = require("./scenari");
+const { dateScenario } = require("./date_scenario"); // date calcolate dal data agent
 const { STRUMENTI, indirizzoDataAgent } = require("./strumenti");
 
 const CARTELLA_PROGETTO = path.resolve(__dirname, "..");
@@ -95,8 +95,8 @@ async function main() {
   await attendi(`${URL_BACKEND}/api/scenari`);
 
   for (const scenario of SCENARI) {
-    const d = dateScenario(scenario);
-    console.log(`\n${"=".repeat(80)}\nScenario "${scenario.id}": oggi ${d.oggiEsteso}, negozio ${scenario.negozio}\n${"=".repeat(80)}`);
+    const d = await dateScenario(scenario);
+    console.log(`\n${"=".repeat(80)}\nScenario "${scenario.id}": oggi ${d.oggi_esteso}, negozio ${scenario.negozio}\n${"=".repeat(80)}`);
 
     const b = await STRUMENTI.prepara_briefing(undefined, scenario.id);
     if (!b.anomalie) {
@@ -111,13 +111,13 @@ async function main() {
     if (!b.riconoscimenti.length) console.log("  (nessuno)");
     for (const r of b.riconoscimenti) console.log(`  - ${r.reparto}: ${JSON.stringify(r)}`);
 
-    const periodo = ultimaSettimanaCompleta(scenario.oggi);
+    const periodo = d.ultima_settimana_completa;
     const s = await STRUMENTI.controlla_soglie(periodo, undefined, scenario.id);
     console.log(`Soglie (${periodo.inizio} - ${periodo.fine}):`);
     console.log(s.testoPerLLM.split("\n").map((r) => `  ${r}`).join("\n"));
 
     console.log("Verifiche:");
-    verifica(`dati del briefing di ieri (${d.ieriIso})`, b.testoPerLLM.includes(d.ieriIso) || b.testoPerLLM.includes(String(d.ieri.getDate())));
+    verifica(`dati del briefing di ieri (${d.ieri})`, b.testoPerLLM.includes(d.ieri) || b.testoPerLLM.includes(String(Number(d.ieri.slice(8)))));
     ATTESE[scenario.id](b, s);
     // Eccedenze donate: kg calcolati a mano dal CSV (ultima settimana completa)
     const kgAttesi = { tranquilla: [31, 160.9], caldo: [20.6, 134.4], fornitore: [24, 147.1] }[scenario.id];
@@ -157,6 +157,8 @@ async function main() {
   verifica(`il data agent rifiuta scenario "inventato" (stato ${agente.stato})`, agente.stato === 400);
   const soglie = await post(`${indirizzoDataAgent()}/soglie`, { inizio: "2026-08-24", fine: "2026-08-30", scenario: "x" });
   verifica(`/soglie del data agent rifiuta scenario "x" (stato ${soglie.stato})`, soglie.stato === 400);
+  const date = await fetch(`${indirizzoDataAgent()}/scenari/inventato/date`);
+  verifica(`/scenari/inventato/date del data agent rifiutato (stato ${date.status})`, date.status === 400);
 }
 
 main()

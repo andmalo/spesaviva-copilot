@@ -159,3 +159,32 @@
     dello stesso negozio, quindi la quota di date illeggibili si
     calcola dal report della pulizia sulle righe lette, non sulle
     righe rimaste.
+
+## 2026-11-11 – Revisione dei docenti, parte 3: date dello scenario in un solo punto
+- Cosa non funzionava: "ieri", "inizio settimana" e "mese corrente"
+  erano calcolati due volte, in backend/scenari.js e in
+  data_agent/app.py, e l'ultima settimana completa sia in
+  backend/azioni.js sia in briefing.py. Era già successo che
+  orchestratore e data agent definissero "questa settimana" in modo
+  diverso.
+- Soluzione: il calcolo è solo nel data agent, che conosce i dati
+  (data_agent/date_scenario.py), ed è esposto con
+  GET /scenari/{id}/date. Il back end chiede le date invece di
+  calcolarle (backend/date_scenario.js); scenari.js contiene solo
+  l'elenco degli scenari ammessi.
+- Regola mantenuta, per non cambiare le risposte: ieri = oggi - 1;
+  "questa settimana" = gli ultimi 7 giorni fino a ieri (non da lunedì
+  a domenica); mese corrente = mese di ieri; ultima settimana
+  completa = l'ultima lunedì-domenica entro ieri. Prima di togliere
+  il vecchio codice ho confrontato le sue date con quelle nuove nei
+  tre scenari: identiche, quindi il prompt di sistema non cambia.
+- Le date di uno scenario non cambiano: il back end le chiede una
+  volta e le tiene in memoria. Conseguenza: anche le domande sul
+  manuale ora richiedono il data agent acceso. Se non risponde, la
+  chat restituisce un 503 con un messaggio chiaro
+  (data_agent_non_raggiungibile) e alla richiesta successiva si
+  riprova.
+- Test: date dei tre scenari contro valori scritti a mano (pytest,
+  funzione ed endpoint); in test_feedback.js un finto data agent
+  verifica che le date si chiedano una sola volta e che senza date la
+  chat risponda 503.

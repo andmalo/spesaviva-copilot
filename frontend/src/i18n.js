@@ -168,6 +168,7 @@ const TESTI = {
     errore_sessione_non_valida: 'Invalid session: start a new conversation.',
     errore_azione_sconosciuta: 'This action is not available.',
     errore_scenario_non_valido: 'Invalid demo scenario: choose one from the menu.',
+    errore_data_agent_non_raggiungibile: 'The data analysis service cannot be reached: please try again shortly.',
     eccedenzeEtichetta: 'Surplus food donated',
     comeCalcolato: 'How I calculated it',
     valutaUtile: 'Helpful answer',

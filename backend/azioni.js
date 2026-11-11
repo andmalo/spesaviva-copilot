@@ -4,7 +4,6 @@
 const { STRUMENTI } = require("./strumenti");
 const { sezioniPerTitolo } = require("./rag/cerca");
 const { separaBozza, separaFonti, togliDomandaFinale, aggiungiFonteUfficiale } = require("./testo_risposte");
-const { MESI: MESI_IT, daIso, aIso, piuGiorni } = require("./scenari");
 
 const AZIONI = ["briefing", "soglie", "report"];
 
@@ -21,17 +20,14 @@ const SEZIONI_PROCEDURA = {
 };
 
 const MESI = {
-  it: MESI_IT,
+  it: ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
+    "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"],
   en: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
 };
 
-// Ultima settimana completa (lunedì-domenica) prima di oggi
-function ultimaSettimanaCompleta(oggiIso) {
-  const oggi = daIso(oggiIso);
-  const giorniDallaDomenica = oggi.getDay() === 0 ? 7 : oggi.getDay(); // domenica = 0
-  const domenica = piuGiorni(oggi, -giorniDallaDomenica);
-  return { inizio: aIso(piuGiorni(domenica, -6)), fine: aIso(domenica) };
-}
+// Le date dello scenario le calcola il data agent (date_scenario.js): qui si formattano soltanto.
+// Data AAAA-MM-GG in ora locale a mezzogiorno, per non avere problemi con l'ora legale
+const daIso = (iso) => new Date(`${iso}T12:00:00`);
 
 // "dal 24 al 30 agosto 2026" / "24–30 August 2026"
 function periodoLeggibile({ inizio, fine }, lingua) {
@@ -150,14 +146,16 @@ function superamenti(controlli) {
  * @param {object} servizi
  * @param {(messaggi: Array, segnale: AbortSignal) => Promise<{testo: string, token: number}>} servizi.chiamaModello
  *   una chiamata al modello senza strumenti, con gli stessi tetti e controlli della chat
- * @param {(storico: Array, lingua: string, istruzioni: string, scenario: object) => Array} servizi.componiMessaggi
+ * @param {(storico: Array, lingua: string, istruzioni: string, scenario: object) => Promise<Array>} servizi.componiMessaggi
  *   prompt di sistema + memoria della sessione + lingua + istruzioni dell'azione
+ * @param {(scenario: object) => Promise<object>} servizi.dateScenario
+ *   date di riferimento dello scenario, calcolate dal data agent (ieri, ultima settimana completa...)
  */
-function creaAzioni({ chiamaModello, componiMessaggi }) {
+function creaAzioni({ chiamaModello, componiMessaggi, dateScenario }) {
   // Ogni azione riceve lo scenario della demo: la data di "oggi" e il negozio vengono da lì
 
   async function briefing({ lingua, storico, segnale, scenario }) {
-    const ieri = aIso(piuGiorni(daIso(scenario.oggi), -1));
+    const { ieri } = await dateScenario(scenario);
     const esito = nuovoEsito();
     const dati = await STRUMENTI.prepara_briefing(segnale, scenario.id);
     esito.strumenti.push({ nome: "prepara_briefing", domanda: null });
@@ -182,7 +180,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
       "e le procedure qui sotto, già calcolati dal codice: non aggiungere anomalie, cause o consigli che non ci sono.\n\n" +
       dati.testoPerLLM +
       (procedure.length ? `\n\nProcedure del manuale per le anomalie:\n\n${procedure.join("\n\n---\n\n")}` : "");
-    const { testo, token } = await chiamaModello(componiMessaggi(storico, lingua, istruzioni, scenario), segnale);
+    const { testo, token } = await chiamaModello(await componiMessaggi(storico, lingua, istruzioni, scenario), segnale);
     esito.token = token;
 
     let finale = filtraFonti(esito, testo);
@@ -195,7 +193,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
 
   async function soglie({ lingua, storico, segnale, scenario }) {
     const esito = nuovoEsito();
-    const periodo = ultimaSettimanaCompleta(scenario.oggi);
+    const periodo = { ...(await dateScenario(scenario)).ultima_settimana_completa };
     const r = await STRUMENTI.controlla_soglie(periodo, segnale, scenario.id);
     esito.strumenti.push({ nome: "controlla_soglie", domanda: `dal ${periodo.inizio} al ${periodo.fine}` });
     if (r.calcolo) esito.calcoli.push({ strumento: "controlla_soglie", ...r.calcolo });
@@ -206,7 +204,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
       "di' se la soglia è stata superata oppure no, con valore e date. Se un controllo dice \"da comunicare " +
       "all'Area Manager\", riportalo. Non aggiungere valutazioni proprie, cause o consigli.\n\n" +
       r.testoPerLLM;
-    const { testo, token } = await chiamaModello(componiMessaggi(storico, lingua, istruzioni, scenario), segnale);
+    const { testo, token } = await chiamaModello(await componiMessaggi(storico, lingua, istruzioni, scenario), segnale);
     esito.token = token;
     esito.risposta = togliDomandaFinale(testo);
     return { esito, periodo };
@@ -214,7 +212,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
 
   async function report({ lingua, segnale, scenario }) {
     const esito = nuovoEsito();
-    const periodo = ultimaSettimanaCompleta(scenario.oggi);
+    const periodo = { ...(await dateScenario(scenario)).ultima_settimana_completa };
     const r = await STRUMENTI.controlla_soglie(periodo, segnale, scenario.id);
     esito.strumenti.push({ nome: "controlla_soglie", domanda: `dal ${periodo.inizio} al ${periodo.fine}` });
     if (!r.dati?.kpi) throw new Error("dati della settimana non disponibili");
@@ -251,7 +249,7 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
         "Al massimo 120 parole.\n\n" +
         `Soglie superate:\n${elenco.map((s) => `- ${s.indicatore}: ${s.valore} (soglia ${s.soglia}), ${s.periodo}`).join("\n")}\n\n` +
         `Testi del manuale:\n\n${procedure.join("\n\n---\n\n")}`;
-      const { testo, token } = await chiamaModello(componiMessaggi([], "it", istruzioni, scenario), segnale);
+      const { testo, token } = await chiamaModello(await componiMessaggi([], "it", istruzioni, scenario), segnale);
       esito.token = token;
       // Le fonti non vanno dentro la mail: si tolgono eventuali righe "Fonte ufficiale" scritte dal modello
       const azioniManuale = separaFonti(testo).testo
@@ -302,4 +300,4 @@ function creaAzioni({ chiamaModello, componiMessaggi }) {
   return { eseguiAzione };
 }
 
-module.exports = { AZIONI, creaAzioni, ultimaSettimanaCompleta };
+module.exports = { AZIONI, creaAzioni };

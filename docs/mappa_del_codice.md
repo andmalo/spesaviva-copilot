@@ -56,6 +56,7 @@ sicurezza e ciclo di function calling con l'LLM.
 - `eseguiStrumento()`: valida gli argomenti scelti dal modello, prenota le chiamate, esegue lo strumento e raccoglie fonti, grafici, calcoli.
 - `completaRisposta()`: regole fisse sul testo finale (fonti dichiarate, bozza, niente domanda finale, fonte ufficiale in inglese).
 - `promptSistema()`, `componiMessaggi()`: prompt per scenario (statico, per la cache di OpenAI) + memoria + lingua.
+- `dateDelloScenario()`: date dello scenario dal data agent; se non arrivano, errore 503 `data_agent_non_raggiungibile`.
 - `leggiSessione()`, `salvaSessione()`, `leggiScenario()`, `controllaSessione()`: sessioni (max 100, scadenza 1 ora) e validazioni.
 
 ### `strumenti.js`
@@ -72,7 +73,7 @@ Le azioni dirette dei pulsanti (briefing, controllo soglie, report per l'Area
 Manager): gli strumenti li chiama il codice in ordine fisso, l'LLM scrive solo il testo.
 - `creaAzioni()` → `briefing()`, `soglie()`, `report()`, `eseguiAzione()`.
 - `superamenti()`: elenco delle soglie superate, costruito dal codice per il report.
-- `ultimaSettimanaCompleta()`, `periodoLeggibile()`.
+- `periodoLeggibile()`: formatta i periodi; le date (ieri, ultima settimana completa) arrivano dal data agent.
 
 ### `testo_risposte.js`
 Regole fisse applicate al testo dell'LLM.
@@ -81,9 +82,15 @@ Regole fisse applicate al testo dell'LLM.
 - `aggiungiFonteUfficiale()`: in inglese aggiunge la fonte (manuale in italiano).
 
 ### `scenari.js` + `scenari.json`
-I tre scenari della demo (data di "oggi" e negozio), letti anche dal data agent
+I tre scenari della demo ammessi (data di "oggi" e negozio), letti anche dal data agent
 e dal front end. Il browser invia solo l'id.
-- `trovaScenario()`, `dateScenario()` (oggi, ieri, settimana, mese corrente); `daIso()`, `aIso()`, `piuGiorni()`.
+- `trovaScenario()`. Nessun calcolo di date: lo fa il data agent.
+
+### `date_scenario.js`
+Chiede al data agent (`GET /scenari/{id}/date`) le date di riferimento dello
+scenario e le tiene in memoria (sono fisse); se il data agent non risponde non
+salva nulla e alla richiesta successiva riprova.
+- `dateScenario()`, `DateNonDisponibili`.
 
 ### `feedback.js` + `riepilogo_feedback.js`
 Valutazione delle risposte con i pollici. Il server ricorda ogni risposta con un
@@ -102,7 +109,7 @@ function calling. Calibrati con i test: non si modificano senza ripetere i test.
 
 ### Test del back end
 - `test_scenari.js`: briefing, soglie e confronto per ogni scenario; scenari non validi rifiutati (nessuna chiamata a OpenAI).
-- `test_feedback.js`: valutazioni con il server vero e un finto OpenAI locale.
+- `test_feedback.js`: valutazioni con il server vero, un finto OpenAI e un finto data agent locali (anche date in memoria e errore 503 se non arrivano).
 - `test_orchestratore.js`, `rag/test_ricerca.js`: con chiamate reali, da usare solo quando serve.
 
 ---
@@ -112,11 +119,18 @@ function calling. Calibrati con i test: non si modificano senza ripetere i test.
 ### `app.py`
 Servizio FastAPI: configurazione sicura, copia dei dati per ogni richiesta,
 pandas agent e endpoint.
-- Endpoint: `/analizza`, `/briefing`, `/soglie`, `/confronto`, `/health`, `/charts` (grafici).
+- Endpoint: `/analizza`, `/briefing`, `/soglie`, `/confronto`, `/scenari/{id}/date`, `/health`, `/charts` (grafici).
 - `esegui_analisi()`: crea il pandas agent (max 5 passi, timeout, nessun retry), filtra la risposta, estrae codice e grafico.
 - `nuova_copia_dati()`: copia nuova da bytes con controllo sha256, tagliata a "ieri" dello scenario.
 - `contiene_dati_riservati()`, `codice_eseguito()`: filtro dei segreti e codice per "Come l'ho calcolato".
 - La chiave OpenAI non va mai in `os.environ` (letta con `dotenv_values`).
+
+### `date_scenario.py`
+L'unico punto in cui si calcolano le date di riferimento di uno scenario: ieri
+(oggi − 1), inizio settimana (ieri − 6: "questa settimana" sono gli ultimi 7
+giorni), mese corrente (il mese di ieri, completo se ieri è l'ultimo giorno),
+ultima settimana completa (lunedì–domenica entro ieri), anche per esteso.
+- `date_riferimento()` (restituita da `GET /scenari/{id}/date`), `date_scenario()`, `descrivi_mese()`, `data_estesa()`.
 
 ### `briefing.py`
 Tutti i calcoli deterministici, solo pandas: soglie del manuale, briefing,
@@ -152,8 +166,8 @@ passa, ciò che la pulizia non può sistemare ferma il caricamento.
 - `DatasetNonValido`: l'eccezione, con un messaggio in italiano (controllo, righe, esempio).
 
 ### `prompt_data_agent.txt`, `tests/`
-Prompt del pandas agent (calibrato con i test); test pytest (pulizia, briefing,
-soglie, confronto, grafici, sicurezza). Il notebook della fase di prototipazione
+Prompt del pandas agent (calibrato con i test); test pytest (pulizia, validazione,
+date degli scenari, briefing, soglie, confronto, grafici, sicurezza). Il notebook della fase di prototipazione
 è in `notebooks/prototipo_data_agent.ipynb`, nella radice del repository.
 
 ---
@@ -183,7 +197,7 @@ soglie, confronto, grafici, sicurezza). Il notebook della fase di prototipazione
 
 1. `Sidebar.jsx` → `App.eseguiAzione("briefing")` → `POST /api/azioni/briefing` con sessione, lingua e id dello scenario.
 2. `server.js`: limite di frequenza, validazione di scenario e sessione, tetto giornaliero → `azioni.eseguiAzione()`.
-3. `azioni.briefing()` → `strumenti.prepara_briefing()` → `POST /briefing` del data agent.
+3. `azioni.briefing()`: date dello scenario dal data agent (`GET /scenari/{id}/date`, chieste una volta e tenute in memoria) → `strumenti.prepara_briefing()` → `POST /briefing` del data agent.
 4. `app.briefing()` → `briefing.prepara_briefing()` su una copia dei dati fino a ieri: KPI, `controlla_soglie()` sulle serie che arrivano a ieri, anomalie, `_stato_controlli()`, riconoscimenti, eccedenze, grafico. Nessun LLM.
 5. Per ogni anomalia `cerca_procedure()` con la sua `domanda_procedura` (ChromaDB).
 6. **Una sola** chiamata al modello (`chiamaModello()`) con dati e procedure già pronti: scrive il testo.
@@ -193,7 +207,7 @@ soglie, confronto, grafici, sicurezza). Il notebook della fase di prototipazione
 ### 2. Domanda sui dati ("Quale reparto ha più scarti in rapporto alle vendite questo mese?")
 
 1. `Composer.jsx` → `App.invia()` → `POST /api/chat`.
-2. `server.rispondi()`: il modello riceve prompt, memoria e domanda e sceglie `analizza_dati` con una domanda completa e autonoma.
+2. `server.rispondi()`: il modello riceve prompt (con le date dello scenario dal data agent), memoria e domanda e sceglie `analizza_dati` con una domanda completa e autonoma.
 3. `eseguiStrumento()` prenota 5 chiamate (caso peggiore) → `strumenti.analizza_dati()` → `POST /analizza`.
 4. `app.esegui_analisi()`: copia dei dati fino a ieri, prompt con data e negozio dello scenario, pandas agent (codice Python eseguito sui dati, max 5 passi).
 5. Filtro dei segreti sulla risposta; il codice eseguito va in "Come l'ho calcolato"; il blocco JSON del grafico viene validato e disegnato dal codice.

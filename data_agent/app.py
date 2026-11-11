@@ -3,6 +3,7 @@
 - POST /analizza: domanda in linguaggio naturale, analizzata dal pandas agent
   (risposta, grafico disegnato dal codice, codice eseguito, token).
 - POST /briefing, /soglie, /confronto: calcoli deterministici, solo pandas, nessun LLM.
+- GET /scenari/{id}/date: date di riferimento dello scenario (calcolate solo qui, vedi date_scenario.py).
 Ogni richiesta porta l'id dello scenario della demo (data di "oggi" e negozio).
 
 Avvio (dalla cartella principale del progetto, con il .venv attivo):
@@ -18,7 +19,7 @@ import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date
 from pathlib import Path
 
 # Backend "Agg": matplotlib disegna solo su file, senza aprire finestre.
@@ -38,8 +39,9 @@ from langchain_experimental.agents import create_pandas_dataframe_agent
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
 
-from briefing import (MESI, REGOLE_BRIEFING, REGOLE_CONFRONTO, REGOLE_SOGLIE, confronta_negozi, controlla_soglie,
+from briefing import (REGOLE_BRIEFING, REGOLE_CONFRONTO, REGOLE_SOGLIE, confronta_negozi, controlla_soglie,
                       kpi_periodo, prepara_briefing, soglie_superate, testo_confronto, testo_kpi, testo_soglie)
+from date_scenario import date_riferimento, date_scenario
 from grafici import disegna_grafico, estrai_blocco_grafico
 from pulizia import riepilogo_pulizia
 from validazione import DatasetNonValido, carica_e_valida
@@ -151,20 +153,6 @@ def leggi_scenario(id_scenario: str | None) -> dict:
     raise HTTPException(status_code=400, detail="Scenario della demo non valido.")
 
 
-def date_scenario(scenario: dict) -> tuple[date, date]:
-    """(oggi, ieri) dello scenario."""
-    oggi = date.fromisoformat(scenario["oggi"])
-    return oggi, oggi - timedelta(days=1)
-
-
-def descrivi_mese(ieri: date) -> str:
-    """Il mese di "ieri", come in backend/scenari.js: completo se ieri è l'ultimo giorno del mese."""
-    mese = f"{MESI[ieri.month - 1]} {ieri.year}"
-    if (ieri + timedelta(days=1)).month != ieri.month:
-        return f"{mese}, l'ultimo mese completo nei dati"
-    return f"{mese}, il mese in corso (dati dal 1 al {ieri.day} {mese})"
-
-
 def pulisci_grafici_vecchi() -> int:
     """Cancella i grafici più vecchi di DURATA_GRAFICI_ORE. Restituisce quanti ne ha cancellati."""
     limite = time.time() - DURATA_GRAFICI_ORE * 3600
@@ -242,13 +230,12 @@ class RichiestaBriefing(BaseModel):
 
 def costruisci_prompt(scenario: dict) -> str:
     """Riempie i segnaposto del prompt con la data e il negozio dello scenario."""
-    oggi, ieri = date_scenario(scenario)
-    inizio_settimana = ieri - timedelta(days=6)
+    d = date_riferimento(scenario)
     return stato["testo_prompt"].format(
-        oggi=oggi.isoformat(),
-        ieri=ieri.isoformat(),
-        inizio_settimana=inizio_settimana.isoformat(),
-        mese_corrente=descrivi_mese(ieri),
+        oggi=d["oggi"],
+        ieri=d["ieri"],
+        inizio_settimana=d["inizio_settimana"],
+        mese_corrente=d["mese_corrente"],
         negozio=scenario["negozio"],
     )
 
@@ -370,6 +357,14 @@ def esegui_analisi(domanda: str, percorso_grafico: Path, scenario: dict,
 @app.get("/health")
 def health():
     return {"stato": "ok"}
+
+
+@app.get("/scenari/{id_scenario}/date")
+def date_dello_scenario(id_scenario: str):
+    """Date di riferimento dello scenario (ieri, inizio settimana, mese corrente, ultima settimana
+    completa), calcolate solo qui: il back end le chiede invece di calcolarle."""
+    scenario = leggi_scenario(id_scenario)
+    return {"scenario": scenario["id"], **date_riferimento(scenario)}
 
 
 @app.post("/analizza")
