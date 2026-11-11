@@ -11,14 +11,15 @@ config.controllaConfigurazione();
 const { creaApp } = require("./app");
 const { pulisciSessioni } = require("./sessioni");
 
+const { logger } = require("./log");
+
 const app = creaApp();
 
 // Pulizia periodica delle sessioni scadute (unref: non impedisce al processo di chiudersi)
 setInterval(pulisciSessioni, 10 * 60 * 1000).unref();
 
 app.listen(config.PORTA, config.INDIRIZZO_ASCOLTO, () => {
-  console.log(
-    `Orchestratore in ascolto su http://${config.INDIRIZZO_ASCOLTO}:${config.PORTA} (modello: ${config.MODELLO}, ` +
-      `max ${config.LIMITE_RICHIESTE_MINUTO} richieste/minuto, tetto ${config.TETTO_TOKEN_GIORNALIERO} token/giorno)`
-  );
+  logger.info({
+    modello: config.MODELLO, richieste_minuto: config.LIMITE_RICHIESTE_MINUTO, tetto_token: config.TETTO_TOKEN_GIORNALIERO,
+  }, `Orchestratore in ascolto su http://${config.INDIRIZZO_ASCOLTO}:${config.PORTA}`);
 });

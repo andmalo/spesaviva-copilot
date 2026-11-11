@@ -10,6 +10,7 @@ const { controllaTettoGiornaliero, prenotaChiamate, aggiungiTokenOggi } = requir
 const { STRUMENTI, STRUMENTI_SENZA_PARAMETRI, STRUMENTI_CON_PERIODO, CHIAMATE_MASSIME_DATA_AGENT } = require("./strumenti");
 const { separaBozza, separaFonti, togliDomandaFinale, aggiungiFonteUfficiale } = require("./testo_risposte");
 const { dateScenario, DateNonDisponibili } = require("./date_scenario");
+const { logger, taglia, aggiungiTokenRichiesta } = require("./log");
 
 // Prompt e definizioni degli strumenti, letti una sola volta dai file in prompts/
 const CARTELLA_PROMPT = path.join(__dirname, "prompts");
@@ -107,17 +108,26 @@ async function creaCompletamento(parametri, segnale) {
   if (!prenotaChiamate(1)) {
     throw new ErroreUtente(429, "È stato raggiunto il numero massimo di chiamate al servizio di intelligenza artificiale.");
   }
+  let completamento;
   try {
-    return await openai.chat.completions.create(
+    completamento = await openai.chat.completions.create(
       { model: MODELLO, temperature: 0, max_completion_tokens: MAX_TOKEN_RISPOSTA, ...parametri },
       // Il segnale interrompe la chiamata in corso se il front end chiude la richiesta
       { signal: segnale }
     );
   } catch (errore) {
     if (segnale.aborted) throw new RichiestaAnnullata();
-    console.error(`[openai] chiamata non riuscita (${errore.constructor.name})`);
+    logger.error({ errore: errore.constructor.name }, "chiamata OpenAI non riuscita");
     throw erroreOpenAI(errore);
   }
+  // Token di input (di cui dalla cache) e di output: servono a stimare i costi
+  const uso = completamento.usage ?? {};
+  aggiungiTokenRichiesta(uso.prompt_tokens, uso.completion_tokens);
+  logger.debug({
+    token_ingresso: uso.prompt_tokens ?? 0, token_cache: uso.prompt_tokens_details?.cached_tokens ?? 0,
+    token_uscita: uso.completion_tokens ?? 0,
+  }, "chiamata OpenAI");
+  return completamento;
 }
 
 /**
@@ -128,9 +138,6 @@ async function chiamaModello(messaggi, segnale) {
   const completamento = await creaCompletamento({ messages: messaggi }, segnale);
   const token = completamento.usage?.total_tokens ?? 0;
   aggiungiTokenOggi(token);
-  // Token di input (di cui dalla cache) e di output: servono a stimare i costi
-  const uso = completamento.usage ?? {};
-  console.log(`[openai] input=${uso.prompt_tokens ?? 0} cache=${uso.prompt_tokens_details?.cached_tokens ?? 0} output=${uso.completion_tokens ?? 0}`);
   return { testo: completamento.choices[0].message.content?.trim() ?? "", token };
 }
 
@@ -158,6 +165,7 @@ async function eseguiStrumento(chiamata, esito, segnale, scenario) {
 
   // Per il front end: la domanda passata, oppure il periodo controllato
   esito.strumenti.push({ nome, domanda: periodo ? `dal ${periodo.inizio} al ${periodo.fine}` : domanda });
+  logger.debug({ strumento: nome, domanda: taglia(domanda), periodo }, "strumento chiamato");
   const risultato = senzaParametri
     ? await STRUMENTI[nome](segnale, scenario.id)
     : await STRUMENTI[nome](periodo ?? domanda, segnale, scenario.id);
@@ -167,6 +175,7 @@ async function eseguiStrumento(chiamata, esito, segnale, scenario) {
   if (risultato.token) {
     esito.token += risultato.token;
     aggiungiTokenOggi(risultato.token);
+    aggiungiTokenRichiesta(risultato.tokenIngresso, risultato.tokenUscita);
   }
   for (const fonte of risultato.fonti ?? []) {
     const giaPresente = esito.sezioni_consultate.some((f) => f.file === fonte.file && f.sezione === fonte.sezione);
@@ -243,7 +252,7 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
       // Controllo fisso: cifre in euro o percentuale senza nessuno strumento usato = numeri inventati.
       // Si scarta la risposta e si obbliga il modello a usare uno strumento (una sola volta).
       if (esito.strumenti.length === 0 && CIFRE_CON_UNITA.test(testoFinale) && !strumentoObbligatorio && !ultimaIterazione) {
-        console.log("[chat] risposta con numeri senza strumenti: scartata, strumento obbligatorio");
+        logger.info("risposta con numeri senza strumenti: scartata, strumento obbligatorio");
         strumentoObbligatorio = true;
         obbligoPerProssimaChiamata = true;
         messaggi.push({

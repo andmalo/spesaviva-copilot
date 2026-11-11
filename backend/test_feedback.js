@@ -52,9 +52,11 @@ const DATE_FINTE = {
   oggi_esteso: "giovedì 17 luglio 2025", ieri_esteso: "mercoledì 16 luglio 2025", inizio_settimana_esteso: "giovedì 10 luglio 2025",
 };
 const richiesteDate = {};
+const idRichiesteDate = {}; // X-Request-Id ricevuto dal back end, per scenario
 const dataAgentFinto = http.createServer((req, res) => {
   const id = req.url.match(/^\/scenari\/([^/]+)\/date$/)?.[1];
   if (id) richiesteDate[id] = (richiesteDate[id] ?? 0) + 1;
+  if (id) idRichiesteDate[id] = req.headers["x-request-id"];
   if (id === "caldo") {
     res.writeHead(200, { "Content-Type": "application/json" });
     return res.end(JSON.stringify({ scenario: id, ...DATE_FINTE }));
@@ -83,9 +85,14 @@ async function main() {
       DATA_AGENT_PORT: String(PORTA_DATA_AGENT),
       LIMITE_RICHIESTE_MINUTO: String(LIMITE),
       FILE_FEEDBACK: FILE,
+      // Log in JSON e al livello debug, per controllare le righe qui sotto
+      LOG_FORMAT: "json",
+      LOG_LEVEL: "debug",
     },
   });
-  server.stdout.on("data", (d) => process.stdout.write(`    [server] ${d}`));
+  // Righe di log del server (JSON), controllate alla fine
+  let uscitaServer = "";
+  server.stdout.on("data", (d) => { uscitaServer += d; process.stdout.write(`    [server] ${d}`); });
   server.stderr.on("data", (d) => process.stdout.write(`    [server] ${d}`));
   try {
     for (let i = 0; i < 30; i++) {
@@ -159,6 +166,26 @@ async function main() {
     }
     verifica(`dopo ${LIMITE} richieste al minuto (chat + valutazioni): 429 ${stato429}`, stato429 === "troppe_richieste");
     verifica(`chiamate al finto OpenAI: ${chiamateFinte} (2 domande)`, chiamateFinte === 2);
+
+    console.log("\nLog strutturato");
+    const righeLog = uscitaServer.split(/\r?\n/).filter((r) => r.trim()).map((r) => { try { return JSON.parse(r); } catch { return null; } });
+    verifica("ogni riga di log è JSON", righeLog.every((r) => r !== null));
+    const fine = righeLog.filter((r) => r?.msg === "richiesta completata");
+    const chat = fine.find((r) => r.rotta === "/api/chat" && r.esito === "ok");
+    console.log(`    ${JSON.stringify(chat)}`);
+    verifica("riga di fine richiesta della chat: requestId, rotta, scenario, strumenti, durata, esito, token, cache",
+      /^[0-9a-f-]{36}$/.test(chat?.requestId) && chat.scenario === "caldo" && Array.isArray(chat.strumenti)
+        && Number.isInteger(chat.durata_ms) && chat.stato === 200 && chat.token_ingresso === 10 && chat.token_uscita === 5
+        && chat.cache === false);
+    const senza = fine.find((r) => r.codice === "data_agent_non_raggiungibile");
+    verifica("riga con esito errore e codice (503)", senza?.esito === "errore" && senza.stato === 503 && senza.scenario === "fornitore");
+    verifica("lo stesso requestId arriva al data agent (X-Request-Id)", senza && idRichiesteDate.fornitore === senza.requestId);
+    verifica("una riga di fine richiesta per ogni richiesta, ognuna con il suo requestId",
+      new Set(fine.map((r) => r.requestId)).size === fine.length && fine.length >= richieste);
+    const debug = righeLog.find((r) => r?.level === "debug" && r.domanda);
+    verifica(`al livello debug la domanda (${debug?.domanda})`, debug?.domanda === "Cosa faccio con la merce?");
+    verifica("nei log nessuna risposta del modello e nessuna chiave",
+      !uscitaServer.includes("avvisa il responsabile") && !uscitaServer.includes("chiave-finta-per-il-test"));
 
     console.log("\nRiepilogo per strumento");
     const riepilogo = execFileSync(process.execPath, ["riepilogo_feedback.js", FILE], { cwd: __dirname, encoding: "utf-8" });

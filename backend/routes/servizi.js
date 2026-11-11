@@ -4,6 +4,7 @@ const express = require("express");
 const { indirizzoDataAgent, NOME_GRAFICO } = require("../strumenti");
 const { creaClient } = require("../rag/config");
 const { SCENARI } = require("../scenari");
+const { intestazioniRichiesta } = require("../log");
 
 const router = express.Router();
 
@@ -11,7 +12,7 @@ const router = express.Router();
 router.get("/api/grafici/:nome", async (req, res) => {
   if (!NOME_GRAFICO.test(req.params.nome)) return res.status(404).end();
   try {
-    const risposta = await fetch(`${indirizzoDataAgent()}/charts/${req.params.nome}`, { signal: AbortSignal.timeout(10_000) });
+    const risposta = await fetch(`${indirizzoDataAgent()}/charts/${req.params.nome}`, { headers: intestazioniRichiesta(), signal: AbortSignal.timeout(10_000) });
     if (!risposta.ok) return res.status(404).end();
     res.type("png").send(Buffer.from(await risposta.arrayBuffer()));
   } catch {
@@ -28,7 +29,7 @@ router.get("/api/scenari", (req, res) => {
 router.get("/api/health", async (req, res) => {
   const controlli = await Promise.allSettled([
     creaClient().heartbeat(),
-    fetch(`${indirizzoDataAgent()}/health`, { signal: AbortSignal.timeout(5000) }).then((r) => {
+    fetch(`${indirizzoDataAgent()}/health`, { headers: intestazioniRichiesta(), signal: AbortSignal.timeout(5000) }).then((r) => {
       if (!r.ok) throw new Error("stato non valido");
     }),
   ]);

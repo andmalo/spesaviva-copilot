@@ -121,6 +121,33 @@ negozi diversi da NEG01–NEG06, valori negativi) il data agent **non parte** e
 scrive quale controllo è fallito, ad esempio
 `Dataset non valido, il data agent non parte. Controllo della struttura fallito: mancano 1 colonne attese (evento).`
 
+### Log
+
+Back end (pino) e data agent (modulo `logging`) scrivono log strutturati, con
+due variabili facoltative nel `.env`:
+
+| Variabile | Valori | Predefinito |
+|---|---|---|
+| `LOG_LEVEL` | `debug`, `info`, `warn`, `error` | `info` |
+| `LOG_FORMAT` | `leggibile` (una riga di testo) o `json` (una riga JSON) | `leggibile` in locale, `json` in produzione (Docker) |
+
+Ogni richiesta riceve dal back end un identificativo (`requestId`, un UUID)
+che viaggia verso il data agent nell'intestazione `X-Request-Id`: cercando lo
+stesso `requestId` si segue una richiesta in entrambi i servizi. A fine
+richiesta c'è una riga `richiesta completata` con rotta, scenario, strumenti
+usati, durata in ms, esito (`ok`, `errore` con il codice, `annullata`), token
+in ingresso e in uscita e `cache`, per esempio:
+
+```
+12:02:44 INFO  richiesta completata requestId=417d25cc-... metodo=POST rotta=/api/chat scenario=caldo strumenti=cerca_procedure durata_ms=812 esito=ok stato=200 token_ingresso=2310 token_uscita=154 cache=false
+```
+
+Nei log non finiscono mai la chiave API, il testo delle risposte o il codice
+generato (ogni riga passa dallo stesso filtro dei segreti delle risposte);
+solo al livello `debug` compaiono le prime 200 battute della domanda.
+`/api/health`, `/api/scenari` e i grafici, chiamati spesso, hanno la riga
+di fine richiesta al livello `debug`.
+
 ## In alternativa: avvio manuale dei servizi
 
 I servizi sono quattro e vanno avviati **in quest'ordine**, ognuno in un
@@ -180,7 +207,7 @@ Senza chiamate a OpenAI:
 
 ```powershell
 cd data_agent; ..\.venv\Scripts\python.exe -m pytest   # pulizia, validazione, date degli scenari, briefing, soglie, confronto, grafici, sicurezza
-cd backend;    npm test                                  # scenari della demo e valutazioni (con un finto OpenAI)
+cd backend;    npm test                                  # log, scenari della demo e valutazioni (con un finto OpenAI)
 cd frontend;   npm run build; npm run lint
 ```
 

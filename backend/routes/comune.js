@@ -5,6 +5,7 @@ const { RichiestaAnnullata, ErroreUtente } = require("../errori");
 const { leggiSessione, salvaSessione } = require("../sessioni");
 const { controllaTettoGiornaliero, tokenUsatiOggi, chiamateOpenAITotali } = require("../limiti");
 const { trovaScenario } = require("../scenari");
+const { logger, taglia, contesto } = require("../log");
 
 // Lingua della risposta: italiano (predefinita) o inglese
 function leggiLingua(valore) {
@@ -22,7 +23,7 @@ function leggiScenario(id) {
 /**
  * Crea il gestore Express di una richiesta all'assistente (chat o azione diretta).
  * Struttura comune: annullamento se il front end chiude la connessione, validazione, tetto giornaliero,
- * memoria della sessione, id della risposta per i pollici, riga di log.
+ * memoria della sessione, id della risposta per i pollici, dati per la riga di log (scritta da app.js).
  * @param {object} feedback - valutazioni (feedback.js), per l'id della risposta
  * @param {object} opzioni
  * @param {(req) => string} opzioni.etichetta - prefisso del log, es. "chat" oppure "azione briefing"
@@ -34,7 +35,6 @@ function leggiScenario(id) {
  */
 function gestisciRichiesta(feedback, { etichetta, valida, esegui }) {
   return async (req, res, next) => {
-    const inizio = Date.now();
     const nome = etichetta(req);
 
     // Se il front end chiude la connessione prima della risposta, si interrompono ciclo e chiamate.
@@ -46,6 +46,10 @@ function gestisciRichiesta(feedback, { etichetta, valida, esegui }) {
 
     try {
       const dati = valida(req);
+      const c = contesto();
+      if (c) c.scenario = dati.scenario.id;
+      // Al livello debug, al massimo le prime 200 battute della domanda
+      logger.debug({ domanda: taglia(dati.testo) }, `richiesta ricevuta: ${nome}`);
       controllaTettoGiornaliero();
       const storico = leggiSessione(dati.sessionId, dati.scenario);
       const { esito, domanda, rispostaPerMemoria, rispostaPerFeedback, extra } = await esegui(dati, storico, controller.signal);
@@ -59,22 +63,16 @@ function gestisciRichiesta(feedback, { etichetta, valida, esegui }) {
         sessionId: dati.sessionId, scenario: dati.scenario.id, domanda, strumenti: esito.strumenti, risposta: rispostaPerFeedback,
       });
 
-      // Log della richiesta: strumenti, token e tempo
-      const elencoStrumenti = esito.strumenti.map((s) => s.nome).join(" -> ") || "nessuno";
-      const secondi = ((Date.now() - inizio) / 1000).toFixed(1);
-      console.log(
-        `[${nome}] strumenti: ${elencoStrumenti} | token: ${esito.token} | tempo: ${secondi}s | ` +
-          `token oggi: ${tokenUsatiOggi()}/${TETTO_TOKEN_GIORNALIERO} | chiamate OpenAI totali: ${chiamateOpenAITotali()}`
-      );
+      // Per la riga di log di fine richiesta (app.js): strumenti usati e consumi
+      if (c) {
+        c.strumenti = esito.strumenti.map((s) => s.nome);
+        c.extra = { token_oggi: tokenUsatiOggi(), tetto_token: TETTO_TOKEN_GIORNALIERO, chiamate_openai_totali: chiamateOpenAITotali() };
+      }
       res.json(extra ? { ...esito, ...extra } : esito);
     } catch (errore) {
-      const secondi = ((Date.now() - inizio) / 1000).toFixed(1);
-      if (errore instanceof RichiestaAnnullata) {
-        // Il front end non aspetta più: nessuna risposta da inviare e niente salvato in memoria
-        console.log(`[${nome}] richiesta annullata dal client | tempo: ${secondi}s | chiamate OpenAI totali: ${chiamateOpenAITotali()}`);
-        return;
-      }
-      console.log(`[${nome}] richiesta non riuscita (${errore.name}) | tempo: ${secondi}s | chiamate OpenAI totali: ${chiamateOpenAITotali()}`);
+      // Annullata: il front end non aspetta più, nessuna risposta da inviare e niente salvato in memoria.
+      // La riga di log (esito "annullata" o "errore") la scrive app.js quando la risposta si chiude.
+      if (errore instanceof RichiestaAnnullata) return;
       next(errore);
     }
   };

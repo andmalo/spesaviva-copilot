@@ -1,6 +1,7 @@
 // Errori del back end: classi, traduzione degli errori di OpenAI e gestore centralizzato di Express.
 // Al front end vanno solo messaggi fissi in italiano, mai il testo originale di un errore.
 const OpenAI = require("openai");
+const { logger, contesto } = require("./log");
 
 // Errore lanciato quando il front end chiude la richiesta prima della risposta
 class RichiestaAnnullata extends Error {}
@@ -40,6 +41,8 @@ function erroreOpenAI(errore) {
 // Express riconosce il gestore degli errori dai 4 parametri: _next serve anche se non si usa
 function gestoreErrori(errore, req, res, _next) {
   if (errore instanceof ErroreUtente) {
+    // Il codice va nella riga di log di fine richiesta
+    if (contesto() && errore.codice) contesto().codice = errore.codice;
     return res.status(errore.stato).json({ errore: errore.message, codice: errore.codice });
   }
   // JSON malformato o corpo troppo grande (errori generati da express.json)
@@ -49,7 +52,7 @@ function gestoreErrori(errore, req, res, _next) {
   if (errore.type === "entity.too.large") {
     return res.status(413).json({ errore: "La richiesta è troppo grande." });
   }
-  console.error(`[server] errore imprevisto (${errore.name})`);
+  logger.error({ errore: errore.name }, "errore imprevisto");
   res.status(500).json({ errore: "Si è verificato un errore interno. Riprova più tardi." });
 }
 

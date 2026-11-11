@@ -3,6 +3,7 @@ const { rateLimit } = require("express-rate-limit");
 
 const { LIMITE_RICHIESTE_MINUTO, TETTO_TOKEN_GIORNALIERO, MAX_CHIAMATE_OPENAI } = require("./config");
 const { ErroreUtente } = require("./errori");
+const { contesto } = require("./log");
 
 // Limite di frequenza su /api/chat (e azioni e valutazioni, con lo stesso contatore):
 // oltre la soglia risponde 429 con un messaggio in italiano
@@ -12,6 +13,11 @@ const limiteFrequenza = rateLimit({
   standardHeaders: "draft-8",
   legacyHeaders: false,
   message: { errore: "Troppe richieste in poco tempo: aspetta un minuto e riprova.", codice: "troppe_richieste" },
+  // Come il gestore predefinito, più il codice per la riga di log di fine richiesta
+  handler: (req, res, next, opzioni) => {
+    if (contesto()) contesto().codice = opzioni.message.codice;
+    res.status(opzioni.statusCode).send(opzioni.message);
+  },
 });
 
 // Data di oggi (ora locale) nel formato AAAA-MM-GG, per azzerare il tetto giornaliero

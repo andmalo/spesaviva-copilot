@@ -120,6 +120,16 @@ I tre scenari della demo ammessi (data di "oggi" e negozio), letti anche dal dat
 e dal front end. Il browser invia solo l'id.
 - `trovaScenario()`. Nessun calcolo di date: lo fa il data agent.
 
+### `log.js`
+Log strutturato (pino), livello e formato da `LOG_LEVEL` e `LOG_FORMAT`.
+- `logger`, `creaLogger()`: ogni riga passa da `oscura()` (filtro dei segreti: "sk-..." e valori
+  delle variabili riservate) e poi è scritta in JSON o in formato leggibile.
+- `archivioContesto`, `contesto()`: contesto della richiesta (AsyncLocalStorage) con requestId,
+  rotta, scenario, strumenti, token e cache; il requestId entra in ogni riga.
+- `intestazioniRichiesta()`: `X-Request-Id` per le chiamate al data agent.
+- `aggiungiTokenRichiesta()`, `taglia()` (le prime 200 battute, solo al livello debug).
+- La riga `richiesta completata` la scrive `registraRichiesta()` in `app.js` quando la risposta si chiude.
+
 ### `date_scenario.js`
 Chiede al data agent (`GET /scenari/{id}/date`) le date di riferimento dello
 scenario e le tiene in memoria (sono fisse); se il data agent non risponde non
@@ -143,7 +153,8 @@ function calling. Calibrati con i test: non si modificano senza ripetere i test.
 
 ### Test del back end
 - `test_scenari.js`: briefing, soglie e confronto per ogni scenario; scenari non validi rifiutati (nessuna chiamata a OpenAI).
-- `test_feedback.js`: valutazioni con il server vero, un finto OpenAI e un finto data agent locali (anche date in memoria e errore 503 se non arrivano).
+- `test_log.js`: formato dei log, requestId dal contesto, livello, filtro dei segreti, domanda troncata.
+- `test_feedback.js`: valutazioni con il server vero, un finto OpenAI e un finto data agent locali (anche date in memoria, errore 503 se non arrivano, righe di log JSON con requestId uguale a quello ricevuto dal data agent).
 - `test_orchestratore.js`, `rag/test_ricerca.js`: con chiamate reali, da usare solo quando serve.
 
 ---
@@ -158,6 +169,14 @@ pandas agent e endpoint.
 - `nuova_copia_dati()`: copia nuova da bytes con controllo sha256, tagliata a "ieri" dello scenario.
 - `contiene_dati_riservati()`, `codice_eseguito()`: filtro dei segreti e codice per "Come l'ho calcolato".
 - La chiave OpenAI non va mai in `os.environ` (letta con `dotenv_values`).
+
+### `registro.py`
+Log strutturato del data agent (modulo `logging`), livello e formato da `LOG_LEVEL` e `LOG_FORMAT`;
+nessuna `print`. Anche i log di uvicorn passano da qui.
+- `FormatoJson`, `FormatoLeggibile`: ogni riga passa da `oscura()`, con gli stessi valori riservati del filtro sulle risposte.
+- `ID_RICHIESTA`: requestId della richiesta in corso, letto da `X-Request-Id` (solo UUID) dal middleware
+  `registra_richiesta()` di `app.py`, che scrive anche la riga `richiesta completata`.
+- `annota()`: aggiunge scenario e token alla riga di fine richiesta; `taglia()`, `configura_log()`.
 
 ### `date_scenario.py`
 L'unico punto in cui si calcolano le date di riferimento di uno scenario: ieri
@@ -200,7 +219,7 @@ passa, ciò che la pulizia non può sistemare ferma il caricamento.
 - `DatasetNonValido`: l'eccezione, con un messaggio in italiano (controllo, righe, esempio).
 
 ### `prompt_data_agent.txt`, `tests/`
-Prompt del pandas agent (calibrato con i test); test pytest (pulizia, validazione,
+Prompt del pandas agent (calibrato con i test); test pytest (pulizia, validazione, log,
 date degli scenari, briefing, soglie, confronto, grafici, sicurezza). Il notebook della fase di prototipazione
 è in `notebooks/prototipo_data_agent.ipynb`, nella radice del repository.
 

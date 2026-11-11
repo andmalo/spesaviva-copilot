@@ -44,6 +44,8 @@ from briefing import (REGOLE_BRIEFING, REGOLE_CONFRONTO, REGOLE_SOGLIE, confront
 from date_scenario import date_riferimento, date_scenario
 from grafici import disegna_grafico, estrai_blocco_grafico
 from pulizia import riepilogo_pulizia
+from registro import (DETTAGLI_RICHIESTA, FORMATO_ID, ID_RICHIESTA, annota, configura_log, imposta_valori_riservati,
+                      taglia)
 from validazione import DatasetNonValido, carica_e_valida
 
 CARTELLA_AGENTE = Path(__file__).resolve().parent
@@ -68,6 +70,7 @@ VARIABILI_PUBBLICHE = {
     "DATA_RIFERIMENTO", "NEGOZIO_UTENTE",
     "BACKEND_PORT", "DATA_AGENT_PORT", "CHROMA_PORT",
     "LIMITE_RICHIESTE_MINUTO", "TETTO_TOKEN_GIORNALIERO",
+    "LOG_LEVEL", "LOG_FORMAT",
 }
 for _nome in VARIABILI_PUBBLICHE:
     if VALORI_ENV.get(_nome) and _nome not in os.environ:
@@ -91,6 +94,10 @@ VALORI_RISERVATI = sorted(
 )
 MESSAGGIO_BLOCCATO = ("La risposta è stata bloccata perché conteneva informazioni riservate. "
                       "Riformula la domanda sui dati del negozio.")
+
+# Log strutturato (registro.py): lo stesso filtro dei segreti vale anche per ogni riga di log
+imposta_valori_riservati(VALORI_RISERVATI)
+configura_log()
 
 # Limiti alle chiamate OpenAI, per evitare loop e costi imprevisti
 MAX_TOKEN_RISPOSTA = 2000     # con meno token il codice scritto dall'agente veniva troncato
@@ -146,11 +153,13 @@ def leggi_scenario(id_scenario: str | None) -> dict:
     """Scenario della richiesta: solo un id della lista (se manca, il primo).
     Date e negozi liberi non si accettano mai."""
     if id_scenario is None or id_scenario == "":
-        return stato["scenari"][0]
-    for scenario in stato["scenari"]:
-        if scenario["id"] == id_scenario:
-            return scenario
-    raise HTTPException(status_code=400, detail="Scenario della demo non valido.")
+        scenario = stato["scenari"][0]
+    else:
+        scenario = next((s for s in stato["scenari"] if s["id"] == id_scenario), None)
+        if scenario is None:
+            raise HTTPException(status_code=400, detail="Scenario della demo non valido.")
+    annota(scenario=scenario["id"])  # per la riga di log di fine richiesta
+    return scenario
 
 
 def pulisci_grafici_vecchi() -> int:
@@ -211,6 +220,43 @@ app = FastAPI(title="Data agent", lifespan=ciclo_di_vita)
 
 CARTELLA_GRAFICI.mkdir(exist_ok=True)
 app.mount("/charts", StaticFiles(directory=CARTELLA_GRAFICI), name="charts")
+
+# Rotte chiamate spesso (controllo di stato, grafici): la loro riga di log è a livello debug
+ROTTE_DI_SERVIZIO = ("/health", "/charts/")
+
+
+@app.middleware("http")
+async def registra_richiesta(request: Request, call_next):
+    """requestId dall'intestazione X-Request-Id del back end (o nuovo) e una riga di log a fine richiesta."""
+    ricevuto = request.headers.get("x-request-id", "")
+    id_richiesta = ricevuto if FORMATO_ID.match(ricevuto) else str(uuid.uuid4())
+    gettone_id = ID_RICHIESTA.set(id_richiesta)
+    dettagli = {}
+    gettone_dettagli = DETTAGLI_RICHIESTA.set(dettagli)
+    inizio = time.perf_counter()
+    stato_http = 500
+    try:
+        risposta = await call_next(request)
+        stato_http = risposta.status_code
+        return risposta
+    finally:
+        riga = {
+            "metodo": request.method,
+            "rotta": request.url.path,
+            "durata_ms": round((time.perf_counter() - inizio) * 1000),
+            "esito": "ok" if stato_http < 400 else "errore",
+            "stato": stato_http,
+            **dettagli,
+        }
+        if stato_http >= 500:
+            livello = logging.ERROR
+        elif stato_http < 400 and request.url.path.startswith(ROTTE_DI_SERVIZIO):
+            livello = logging.DEBUG
+        else:
+            livello = logging.INFO
+        logger.log(livello, "richiesta completata", extra=riga)
+        DETTAGLI_RICHIESTA.reset(gettone_dettagli)
+        ID_RICHIESTA.reset(gettone_id)
 
 
 class Domanda(BaseModel):
@@ -300,10 +346,11 @@ def codice_eseguito(passi: list) -> str | None:
 
 
 def esegui_analisi(domanda: str, percorso_grafico: Path, scenario: dict,
-                   callbacks: list | None = None) -> tuple[str, int, str | None]:
+                   callbacks: list | None = None) -> tuple[str, dict, str | None]:
     """Fa analizzare la domanda al pandas agent su una copia nuova dei dati.
 
-    Restituisce (testo della risposta, token usati, codice eseguito). Il testo è già passato
+    Restituisce (testo della risposta, token usati, codice eseguito); i token sono un dizionario
+    con totale, ingresso (di cui dalla cache) e uscita. Il testo è già passato
     dal filtro sui dati riservati e non contiene più il blocco del grafico, che se valido è stato
     disegnato in percorso_grafico. Le eccezioni di OpenAI risalgono al chiamante.
     """
@@ -331,19 +378,24 @@ def esegui_analisi(domanda: str, percorso_grafico: Path, scenario: dict,
     )
     risultato = agente.invoke({"input": domanda})
     usi = contatore.usage_metadata.values()
-    token = sum(uso.get("total_tokens", 0) for uso in usi)
+    token = {
+        "totale": sum(uso.get("total_tokens", 0) for uso in usi),
+        "ingresso": sum(u.get("input_tokens", 0) for u in usi),
+        "cache": sum((u.get("input_token_details") or {}).get("cache_read", 0) for u in usi),
+        "uscita": sum(u.get("output_tokens", 0) for u in usi),
+    }
 
     # Una riga di log per analisi, per misurare costi e chiamate
-    entrata = sum(u.get("input_tokens", 0) for u in usi)
-    cache = sum((u.get("input_token_details") or {}).get("cache_read", 0) for u in usi)
-    uscita = sum(u.get("output_tokens", 0) for u in usi)
-    print(f"[analisi] modello={modello_data_agent()} chiamate={chiamate.chiamate} "
-          f"input={entrata} cache={cache} output={uscita}", flush=True)
+    logger.info("analisi completata", extra={
+        "modello": modello_data_agent(), "chiamate": chiamate.chiamate,
+        "token_ingresso": token["ingresso"], "token_cache": token["cache"], "token_uscita": token["uscita"],
+    })
 
     # Filtro sul testo grezzo, blocco del grafico compreso
     testo = str(risultato["output"])
     if contiene_dati_riservati(testo):
         logger.warning("Risposta bloccata dal filtro: conteneva informazioni riservate")
+        annota(bloccata_dal_filtro=True)
         return MESSAGGIO_BLOCCATO, token, None
 
     codice = codice_eseguito(risultato.get("intermediate_steps") or [])
@@ -374,6 +426,8 @@ def analizza(richiesta: Domanda, request: Request):
     if not domanda:
         raise HTTPException(status_code=400, detail="La domanda è vuota.")
     scenario = leggi_scenario(richiesta.scenario)
+    # Al livello debug, al massimo le prime 200 battute della domanda
+    logger.debug("domanda ricevuta", extra={"domanda": taglia(domanda)})
 
     # Nome unico per il grafico di questa richiesta (lo disegna il codice, non l'agente)
     nome_grafico = f"grafico_{uuid.uuid4().hex}.png"
@@ -384,12 +438,16 @@ def analizza(richiesta: Domanda, request: Request):
     except Exception as errore:
         logger.error("Analisi non riuscita: %s", type(errore).__name__)
         raise HTTPException(status_code=500, detail=messaggio_errore(errore))
+    annota(token_ingresso=token["ingresso"], token_uscita=token["uscita"])
 
     return {
         "risposta": risposta,
         "grafico": url_grafico(request, nome_grafico, percorso_grafico),
         "pulizia": stato["riepilogo_pulizia"],
-        "token": token,
+        "token": token["totale"],
+        # Solo per la riga di log del back end (token in ingresso e in uscita della richiesta)
+        "token_ingresso": token["ingresso"],
+        "token_uscita": token["uscita"],
         "codice": codice,  # mostrato come testo, mai eseguito dal front end
     }
 
@@ -480,4 +538,6 @@ def confronto(periodo: Periodo):
 
 if __name__ == "__main__":
     porta = int(os.getenv("DATA_AGENT_PORT", "8001"))
-    uvicorn.run(app, host="127.0.0.1", port=porta)
+    # log_config=None: uvicorn usa i log configurati in registro.py; il log di accesso è sostituito
+    # dalla riga di fine richiesta del middleware, che ha anche il requestId
+    uvicorn.run(app, host="127.0.0.1", port=porta, log_config=None, access_log=False)

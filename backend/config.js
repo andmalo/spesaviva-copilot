@@ -3,6 +3,7 @@ const path = require("node:path");
 
 // Carico le variabili dal file .env della cartella principale del progetto
 require("dotenv").config({ path: path.resolve(__dirname, "..", ".env"), quiet: true });
+const { logger } = require("./log");
 
 // In produzione (contenitore Docker su Render) il server è l'unico servizio esposto:
 // ascolta sulla porta assegnata dalla piattaforma e serve anche il front end compilato.
@@ -53,12 +54,12 @@ const FILE_FEEDBACK = process.env.FILE_FEEDBACK || path.join(__dirname, "feedbac
 function controllaConfigurazione() {
   for (const variabile of ["OPENAI_API_KEY", "ORCHESTRATOR_MODEL"]) {
     if (!process.env[variabile]) {
-      console.error(`Variabile ${variabile} mancante nel file .env`);
+      logger.error({ variabile }, "variabile mancante nel file .env");
       process.exit(1);
     }
   }
   if (process.env.ORCHESTRATOR_MODEL === "nome-del-modello") {
-    console.error("ORCHESTRATOR_MODEL nel file .env contiene ancora il valore di esempio");
+    logger.error({ variabile: "ORCHESTRATOR_MODEL" }, "il file .env contiene ancora il valore di esempio");
     process.exit(1);
   }
 }

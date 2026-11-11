@@ -2,6 +2,7 @@
 // Ogni strumento restituisce un oggetto con testoPerLLM, l'unico contenuto rimandato al modello;
 // gli altri campi (fonti, grafico, pulizia, calcolo...) vanno solo al front end.
 const { cercaProcedure } = require("./rag/cerca");
+const { logger, intestazioniRichiesta } = require("./log");
 
 const NUMERO_RISULTATI = 3;   // sezioni chieste a ChromaDB
 const DISTANZA_MASSIMA = 0.4; // oltre questa distanza del coseno la sezione è considerata non pertinente
@@ -52,14 +53,15 @@ async function chiediAlDataAgent(nome, percorso, corpo, { timeoutMs, segnale, no
   try {
     risposta = await fetch(`${indirizzoDataAgent()}${percorso}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      // Lo stesso requestId del back end: la richiesta si segue anche nei log del data agent
+      headers: { "Content-Type": "application/json", ...intestazioniRichiesta() },
       body: JSON.stringify(corpo),
       // Un'analisi già partita nel data agent finisce comunque: si smette solo di aspettarla
       signal: segnaleConTimeout(timeoutMs, segnale),
     });
   } catch (errore) {
     if (segnale?.aborted) return { testoErrore: "Richiesta annullata." };
-    console.error(`[${nome}] data agent non raggiungibile (${errore.name})`);
+    logger.error({ strumento: nome, errore: errore.name }, "data agent non raggiungibile");
     return { testoErrore: typeof nonRaggiungibile === "function" ? nonRaggiungibile(errore) : nonRaggiungibile };
   }
 
@@ -72,7 +74,7 @@ async function chiediAlDataAgent(nome, percorso, corpo, { timeoutMs, segnale, no
     } catch {
       // corpo non leggibile: resta il messaggio generico
     }
-    console.error(`[${nome}] il data agent ha risposto con stato ${risposta.status}`);
+    logger.error({ strumento: nome, stato: risposta.status }, "il data agent ha risposto con un errore");
     return { testoErrore: nonRiuscita(dettaglio) };
   }
   return { dati: await risposta.json() };
@@ -87,7 +89,7 @@ async function cerca_procedure(domanda, segnaleRichiesta) {
   try {
     risultati = await cercaProcedure(domanda, NUMERO_RISULTATI);
   } catch (errore) {
-    console.error(`[cerca_procedure] ricerca non riuscita (${errore.name})`);
+    logger.error({ strumento: "cerca_procedure", errore: errore.name }, "ricerca nel manuale non riuscita");
     return {
       testoPerLLM: "Errore: la ricerca nel manuale non è al momento disponibile. Avvisa lo Store Manager che non è possibile consultare le procedure e di riprovare più tardi.",
       fonti: [],
@@ -130,6 +132,9 @@ async function analizza_dati(domanda, segnaleRichiesta, scenario) {
     calcolo: calcolo("codice", dati.codice),
     // Contano nella risposta e nel tetto giornaliero
     token: Number.isFinite(dati.token) ? dati.token : 0,
+    // Solo per il log della richiesta (token in ingresso e in uscita)
+    tokenIngresso: Number.isFinite(dati.token_ingresso) ? dati.token_ingresso : 0,
+    tokenUscita: Number.isFinite(dati.token_uscita) ? dati.token_uscita : 0,
   };
 }
 

@@ -4,6 +4,7 @@
 // Per ogni scenario sono fisse: si chiedono una volta e restano in memoria. Se il data agent
 // non risponde, la richiesta non riesce e alla successiva si riprova.
 const { indirizzoDataAgent } = require("./strumenti");
+const { logger, intestazioniRichiesta } = require("./log");
 
 const TIMEOUT_DATE_MS = 5000;
 
@@ -17,14 +18,15 @@ async function chiediDate(idScenario) {
   let risposta;
   try {
     risposta = await fetch(`${indirizzoDataAgent()}/scenari/${encodeURIComponent(idScenario)}/date`, {
+      headers: intestazioniRichiesta(),
       signal: AbortSignal.timeout(TIMEOUT_DATE_MS),
     });
   } catch (errore) {
-    console.error(`[date_scenario] data agent non raggiungibile (${errore.name})`);
+    logger.error({ errore: errore.name }, "date dello scenario: data agent non raggiungibile");
     throw new DateNonDisponibili();
   }
   if (!risposta.ok) {
-    console.error(`[date_scenario] il data agent ha risposto con stato ${risposta.status}`);
+    logger.error({ stato: risposta.status }, "date dello scenario: il data agent ha risposto con un errore");
     throw new DateNonDisponibili();
   }
   return risposta.json();

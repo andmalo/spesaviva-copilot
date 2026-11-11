@@ -208,3 +208,42 @@
   riuscita ora hanno lo stesso formato per chat e azioni (nome
   dell'errore e chiamate OpenAI totali in entrambe). I log si rifanno
   comunque nella parte 5.
+
+## 2026-11-11 – Revisione dei docenti, parte 5: log strutturato
+- Cosa non funzionava: righe di testo libere (console.log e print),
+  diverse in ogni punto, e nessun modo di seguire una richiesta dal
+  back end al data agent.
+- Soluzione:
+  - back end con pino (backend/log.js), data agent con logging e un
+    formattatore proprio (data_agent/registro.py); niente più print;
+  - ogni richiesta ha un requestId (UUID) creato dal back end e
+    passato al data agent in X-Request-Id; il data agent accetta
+    solo UUID, altrimenti ne crea uno nuovo (niente testo libero nei
+    log);
+  - una riga "richiesta completata" per richiesta: requestId, rotta,
+    scenario, strumenti, durata_ms, esito (ok, errore con codice,
+    annullata), token in ingresso e in uscita, cache (sempre false
+    fino alla parte 7);
+  - LOG_LEVEL e LOG_FORMAT nel .env; formato leggibile in locale e
+    JSON in produzione.
+- Scelte:
+  - formato leggibile scritto a mano invece di pino-pretty, che è
+    uno strumento di sviluppo e non c'è nell'immagine Docker;
+  - il filtro dei segreti si applica alla riga intera già scritta,
+    quindi copre anche i campi e le tracce degli errori;
+  - /api/health, /api/scenari e i grafici loggano a livello debug:
+    il controllo di Render li chiama di continuo;
+  - il log di accesso di uvicorn è spento, sostituito dalla riga di
+    fine richiesta del data agent, che ha il requestId;
+  - per contare i token in ingresso e in uscita anche delle analisi,
+    /analizza restituisce token_ingresso e token_uscita; il back end
+    li usa solo per il log, il front end non li riceve.
+- Restano fuori dai log strutturati: gli script da riga di comando
+  (avvia.mjs, indicizza.js, riepilogo_feedback.js, i test), che
+  stampano per chi li lancia, e l'avviso di deprecazione di
+  langchain-experimental, che Python scrive su stderr durante
+  l'import, prima che i log siano configurati.
+- Verifica: risposte del back end identiche a prima con lo stesso
+  script della parte 4; test nuovi per formato, filtro dei segreti,
+  livello, requestId (test_log.js, test_registro.py e le righe JSON
+  controllate in test_feedback.js).
