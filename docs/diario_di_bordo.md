@@ -313,3 +313,26 @@
     risposte si cancellano dopo 24 ore.
 - Verifica: test_cache.js (31 verifiche), più /versione nei test del
   data agent; risposte invariate con lo script di confronto.
+
+## 2026-11-11 – Revisione dei docenti, parte 8: pulizia periodica dei grafici
+- Cosa non funzionava: i PNG più vecchi di 24 ore si cancellavano solo
+  all'avvio del data agent. In locale, con il servizio acceso per
+  giorni, la cartella charts cresceva senza limite; gli errori di
+  cancellazione si ignoravano in silenzio (except OSError: pass).
+- Soluzione: data_agent/pulizia_grafici.py, con un task asyncio nel
+  ciclo di vita di FastAPI: un giro subito e poi uno ogni
+  PULIZIA_GRAFICI_MINUTI (predefinito 60). La cancellazione gira in
+  un thread, per non bloccare le richieste.
+  - Ogni errore di cancellazione (per esempio un file in uso su
+    Windows) va nel log con nome del file e motivo; il giro continua
+    con gli altri file e il servizio non si ferma. Anche un errore
+    imprevisto in un giro non ferma i giri successivi.
+  - A fine giro una riga: file controllati, cancellati, errori.
+  - Alla chiusura del servizio il task si annulla e si aspetta che
+    sia davvero finito, prima di liberare lo stato.
+- Emerso durante la verifica: una libreria scrive con il logger
+  "httpx2", che non era tra quelli silenziati nella parte 5: ogni
+  chiamata HTTP finiva nel log a livello info. Aggiunto all'elenco.
+- Verifica: test_pulizia_grafici.py (file finti vecchi e nuovi, errore
+  di cancellazione simulato, task periodico che si ferma pulito, giro
+  subito all'avvio) e una prova del ciclo di vita vero del servizio.

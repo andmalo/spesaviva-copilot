@@ -216,6 +216,14 @@ alla risposta.
 - `valida_spec()`: unità ammesse, valori finiti, max 12 barre.
 - `disegna_grafico()`: barre orizzontali, sempre lo stesso stile, un grafico alla volta (lock).
 
+### `pulizia_grafici.py`
+Pulizia dei PNG più vecchi di 24 ore in `charts/`: un giro all'avvio e poi uno ogni
+`PULIZIA_GRAFICI_MINUTI` (predefinito 60), con un task asyncio avviato e fermato nel
+ciclo di vita di FastAPI (`ciclo_di_vita()` in `app.py`).
+- `pulisci_grafici_vecchi()`: un giro; ogni errore di cancellazione nel log con file e motivo, senza fermarsi;
+  a fine giro una riga con controllati, cancellati, errori.
+- `ciclo_pulizia()`, `avvia_pulizia()`, `ferma_pulizia()` (alla chiusura aspetta che il task sia finito), `intervallo_da_env()`.
+
 ### `pulizia.py`
 Pulizia del CSV in memoria (il file non si modifica): date in tre formati, nomi
 dei negozi, duplicati, valori impossibili e anomali, colonna `settimana`.

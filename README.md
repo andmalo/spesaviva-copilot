@@ -154,6 +154,13 @@ Le risposte della chat restano in una cache in memoria (LRU), configurabile nel 
 `CACHE_MAX_VOCI` (voci massime, predefinito 200) e `CACHE_TTL_MINUTI` (scadenza,
 predefinito 60, al massimo 1440 perché i grafici si cancellano dopo 24 ore).
 
+> I grafici PNG del data agent (`data_agent/charts/`) più vecchi di 24 ore si
+> cancellano all'avvio e poi ogni ora, con un task in background
+> (`PULIZIA_GRAFICI_MINUTI` nel `.env`, predefinito 60). Un file che non si può
+> cancellare (per esempio in uso su Windows) finisce nel log con nome e motivo e si
+> riprova al giro dopo; ogni giro scrive `pulizia dei grafici completata` con file
+> controllati, cancellati ed errori.
+
 - Vale solo per domande **identiche** dopo la normalizzazione (minuscole, spazi
   ridotti, punteggiatura finale tolta), mai per domande "simili": "scarti di
   ortofrutta" e "scarti di panetteria" sono vicinissime per significato, ma per numeri

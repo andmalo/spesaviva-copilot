@@ -45,6 +45,7 @@ from briefing import (REGOLE_BRIEFING, REGOLE_CONFRONTO, REGOLE_SOGLIE, confront
 from date_scenario import date_riferimento, date_scenario
 from grafici import disegna_grafico, estrai_blocco_grafico
 from pulizia import riepilogo_pulizia
+from pulizia_grafici import avvia_pulizia, ferma_pulizia, intervallo_da_env
 from registro import (DETTAGLI_RICHIESTA, FORMATO_ID, ID_RICHIESTA, annota, configura_log, imposta_valori_riservati,
                       taglia)
 from validazione import DatasetNonValido, carica_e_valida
@@ -71,7 +72,7 @@ VARIABILI_PUBBLICHE = {
     "DATA_RIFERIMENTO", "NEGOZIO_UTENTE",
     "BACKEND_PORT", "DATA_AGENT_PORT", "CHROMA_PORT",
     "LIMITE_RICHIESTE_MINUTO", "TETTO_TOKEN_GIORNALIERO",
-    "LOG_LEVEL", "LOG_FORMAT",
+    "LOG_LEVEL", "LOG_FORMAT", "PULIZIA_GRAFICI_MINUTI",
 }
 for _nome in VARIABILI_PUBBLICHE:
     if VALORI_ENV.get(_nome) and _nome not in os.environ:
@@ -106,7 +107,6 @@ MAX_PASSI_PER_DOMANDA = 5     # ogni passo dell'agente è una chiamata al modell
 MAX_SECONDI_PER_DOMANDA = 90
 TIMEOUT_CHIAMATA = 60         # secondi per una singola chiamata a OpenAI
 RIGHE_ANTEPRIMA = 3           # righe di esempio del DataFrame incluse nel prompt
-DURATA_GRAFICI_ORE = 24       # i grafici più vecchi si cancellano all'avvio
 MAX_CARATTERI_CODICE = 4000   # codice mostrato in "Come l'ho calcolato": oltre si tronca
 MAX_GIORNI_PERIODO = 400      # periodo massimo per soglie e confronto
 
@@ -163,20 +163,6 @@ def leggi_scenario(id_scenario: str | None) -> dict:
     return scenario
 
 
-def pulisci_grafici_vecchi() -> int:
-    """Cancella i grafici più vecchi di DURATA_GRAFICI_ORE. Restituisce quanti ne ha cancellati."""
-    limite = time.time() - DURATA_GRAFICI_ORE * 3600
-    cancellati = 0
-    for file in CARTELLA_GRAFICI.glob("*.png"):
-        try:
-            if file.stat().st_mtime < limite:
-                file.unlink()
-                cancellati += 1
-        except OSError:
-            pass  # file in uso: si riprova al prossimo avvio
-    return cancellati
-
-
 def modello_data_agent() -> str:
     """DATA_AGENT_MODEL se impostato, altrimenti OPENAI_MODEL."""
     return os.getenv("DATA_AGENT_MODEL") or os.getenv("OPENAI_MODEL")
@@ -210,11 +196,14 @@ async def ciclo_di_vita(app: FastAPI):
         raise
     stato["testo_prompt"] = PERCORSO_PROMPT.read_text(encoding="utf-8")
     stato["scenari"] = json.loads(PERCORSO_SCENARI.read_text(encoding="utf-8"))
-    cancellati = pulisci_grafici_vecchi()
-    if cancellati:
-        logger.info("Cancellati %d grafici più vecchi di %d ore", cancellati, DURATA_GRAFICI_ORE)
-    yield
-    stato.clear()
+    # Grafici più vecchi di 24 ore: un giro subito e poi uno ogni PULIZIA_GRAFICI_MINUTI
+    pulizia = avvia_pulizia(CARTELLA_GRAFICI, intervallo_da_env())
+    try:
+        yield
+    finally:
+        # Alla chiusura il task si ferma pulito, prima di liberare lo stato
+        await ferma_pulizia(pulizia)
+        stato.clear()
 
 
 app = FastAPI(title="Data agent", lifespan=ciclo_di_vita)

@@ -163,5 +163,5 @@ def configura_log() -> None:
         logging.getLogger(nome).handlers.clear()
         logging.getLogger(nome).propagate = True
     # Librerie troppo verbose (una riga per ogni chiamata HTTP): solo avvisi ed errori
-    for nome in ("httpx", "httpcore", "openai", "urllib3", "matplotlib", "langchain", "langchain_core", "asyncio"):
+    for nome in ("httpx", "httpx2", "httpcore", "openai", "urllib3", "matplotlib", "langchain", "langchain_core", "asyncio"):
         logging.getLogger(nome).setLevel(logging.WARNING)
