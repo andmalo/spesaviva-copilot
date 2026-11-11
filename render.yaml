@@ -1,4 +1,5 @@
-# Configurazione del servizio su Render (Blueprint): un solo servizio web dal Dockerfile.
+# Configurazione dei servizi su Render (Blueprint): il servizio web dal Dockerfile e un Key Value
+# (Redis) per il contatore dei token del giorno, che così sopravvive ai riavvii del servizio web.
 # La chiave OpenAI si inserisce nella dashboard di Render, mai in questo file.
 services:
   - type: web
@@ -13,3 +14,18 @@ services:
         value: gpt-4.1-mini
       - key: ORCHESTRATOR_MODEL
         value: gpt-4.1-mini
+      # Indirizzo interno del Key Value qui sotto (rete privata di Render)
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: spesaviva-contatori
+          property: connectionString
+
+  # Key Value gratuito: solo in memoria, senza salvataggio su disco (vedi README)
+  - type: keyvalue
+    name: spesaviva-contatori
+    plan: free
+    # Nessun accesso da fuori: solo dai servizi Render dello stesso account
+    ipAllowList: []
+    # Il contatore non va mai tolto per fare spazio (le chiavi scadono da sole dopo 48 ore)
+    maxmemoryPolicy: noeviction

@@ -104,7 +104,7 @@ const CHIAMATE_PER_STRUMENTO = {
  */
 async function creaCompletamento(parametri, segnale) {
   if (segnale.aborted) throw new RichiestaAnnullata();
-  controllaTettoGiornaliero();
+  await controllaTettoGiornaliero();
   if (!prenotaChiamate(1)) {
     throw new ErroreUtente(429, "È stato raggiunto il numero massimo di chiamate al servizio di intelligenza artificiale.");
   }
@@ -137,7 +137,7 @@ async function creaCompletamento(parametri, segnale) {
 async function chiamaModello(messaggi, segnale) {
   const completamento = await creaCompletamento({ messages: messaggi }, segnale);
   const token = completamento.usage?.total_tokens ?? 0;
-  aggiungiTokenOggi(token);
+  await aggiungiTokenOggi(token);
   return { testo: completamento.choices[0].message.content?.trim() ?? "", token };
 }
 
@@ -174,7 +174,7 @@ async function eseguiStrumento(chiamata, esito, segnale, scenario) {
   // Token del data agent: contano nella risposta e nel tetto giornaliero
   if (risultato.token) {
     esito.token += risultato.token;
-    aggiungiTokenOggi(risultato.token);
+    await aggiungiTokenOggi(risultato.token);
     aggiungiTokenRichiesta(risultato.tokenIngresso, risultato.tokenUscita);
   }
   for (const fonte of risultato.fonti ?? []) {
@@ -241,7 +241,7 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
     obbligoPerProssimaChiamata = false;
     const tokenChiamata = completamento.usage?.total_tokens ?? 0;
     esito.token += tokenChiamata;
-    aggiungiTokenOggi(tokenChiamata);
+    await aggiungiTokenOggi(tokenChiamata);
     const risposta = completamento.choices[0].message;
     const chiamate = risposta.tool_calls ?? [];
 

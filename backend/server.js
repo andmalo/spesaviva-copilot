@@ -10,6 +10,7 @@ config.controllaConfigurazione();
 
 const { creaApp } = require("./app");
 const { pulisciSessioni } = require("./sessioni");
+const { archivioContatore } = require("./limiti");
 
 const { logger } = require("./log");
 
@@ -20,6 +21,6 @@ setInterval(pulisciSessioni, 10 * 60 * 1000).unref();
 
 app.listen(config.PORTA, config.INDIRIZZO_ASCOLTO, () => {
   logger.info({
-    modello: config.MODELLO, richieste_minuto: config.LIMITE_RICHIESTE_MINUTO, tetto_token: config.TETTO_TOKEN_GIORNALIERO,
+    modello: config.MODELLO, richieste_minuto: config.LIMITE_RICHIESTE_MINUTO, tetto_token: config.TETTO_TOKEN_GIORNALIERO, archivio_contatore: archivioContatore,
   }, `Orchestratore in ascolto su http://${config.INDIRIZZO_ASCOLTO}:${config.PORTA}`);
 });

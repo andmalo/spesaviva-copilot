@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test_log.js && node test_scenari.js && node test_feedback.js"
+    "test": "node test_log.js && node test_limiti.js && node test_scenari.js && node test_feedback.js"
   },
   "license": "ISC",
   "type": "commonjs",
@@ -17,6 +17,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.1",
     "openai": "^7.25.0",
-    "pino": "^10.4.0"
+    "pino": "^10.4.0",
+    "redis": "^6.3.0"
   }
 }

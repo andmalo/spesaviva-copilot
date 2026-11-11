@@ -169,6 +169,7 @@ const TESTI = {
     errore_azione_sconosciuta: 'This action is not available.',
     errore_scenario_non_valido: 'Invalid demo scenario: choose one from the menu.',
     errore_data_agent_non_raggiungibile: 'The data analysis service cannot be reached: please try again shortly.',
+    errore_limite_spesa_non_verificabile: "The assistant's daily spending limit cannot be checked right now: please try again in a few minutes.",
     eccedenzeEtichetta: 'Surplus food donated',
     comeCalcolato: 'How I calculated it',
     valutaUtile: 'Helpful answer',

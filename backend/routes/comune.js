@@ -50,7 +50,7 @@ function gestisciRichiesta(feedback, { etichetta, valida, esegui }) {
       if (c) c.scenario = dati.scenario.id;
       // Al livello debug, al massimo le prime 200 battute della domanda
       logger.debug({ domanda: taglia(dati.testo) }, `richiesta ricevuta: ${nome}`);
-      controllaTettoGiornaliero();
+      await controllaTettoGiornaliero();
       const storico = leggiSessione(dati.sessionId, dati.scenario);
       const { esito, domanda, rispostaPerMemoria, rispostaPerFeedback, extra } = await esegui(dati, storico, controller.signal);
 
@@ -66,7 +66,7 @@ function gestisciRichiesta(feedback, { etichetta, valida, esegui }) {
       // Per la riga di log di fine richiesta (app.js): strumenti usati e consumi
       if (c) {
         c.strumenti = esito.strumenti.map((s) => s.nome);
-        c.extra = { token_oggi: tokenUsatiOggi(), tetto_token: TETTO_TOKEN_GIORNALIERO, chiamate_openai_totali: chiamateOpenAITotali() };
+        c.extra = { token_oggi: await tokenUsatiOggi().catch(() => null), tetto_token: TETTO_TOKEN_GIORNALIERO, chiamate_openai_totali: chiamateOpenAITotali() };
       }
       res.json(extra ? { ...esito, ...extra } : esito);
     } catch (errore) {

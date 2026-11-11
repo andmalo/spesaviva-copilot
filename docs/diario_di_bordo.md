@@ -247,3 +247,39 @@
   script della parte 4; test nuovi per formato, filtro dei segreti,
   livello, requestId (test_log.js, test_registro.py e le righe JSON
   controllate in test_feedback.js).
+
+## 2026-11-11 – Revisione dei docenti, parte 6: limiti di spesa che sopravvivono ai riavvii
+- Cosa non funzionava: il contatore dei token del giorno stava in
+  memoria. Su Render gratuito il servizio si spegne dopo 15 minuti
+  senza visite e il contatore ripartiva da zero: il tetto giornaliero
+  si poteva superare più volte al giorno. Un file non basta, perché
+  sui servizi gratuiti il disco si azzera a ogni spegnimento.
+- Soluzione: in limiti.js un archivio con due implementazioni e la
+  stessa interfaccia (leggi, aggiungi): Redis se c'è REDIS_URL (su
+  Render il Key Value gratuito, aggiunto al render.yaml), un file JSON
+  se manca (in locale). Il resto del codice non sa quale è attiva.
+  - Redis: chiave token:AAAA-MM-GG, INCRBY (atomico anche con più
+    istanze) e scadenza di 48 ore.
+  - Il giorno si calcola sempre con il fuso Europe/Rome: Render usa
+    UTC, e senza fuso il tetto si sarebbe azzerato all'1 di notte (o
+    alle 2 con l'ora legale).
+  - Se Redis non risponde (timeout di 2 secondi, nessuna coda di
+    comandi quando la connessione manca) le nuove richieste si
+    rifiutano con 503 e un messaggio chiaro, e il rifiuto va nel log.
+    Anche un file del contatore rovinato fa rifiutare le richieste,
+    invece di ripartire da zero.
+  - I token di una chiamata già fatta, se il salvataggio non riesce,
+    restano in sospeso e si salvano alla chiamata successiva; si
+    prelevano prima di salvarli, così due chiamate contemporanee non
+    li contano due volte (errore trovato rileggendo la prima versione,
+    ora coperto da un test).
+- Limiti noti, scritti nel README: il Key Value gratuito non salva
+  su disco e perde i dati se si riavvia (raro); sessioni e limite di
+  richieste al minuto restano in memoria; la protezione principale
+  resta il limite di spesa nella dashboard di OpenAI.
+- Verifica: test_limiti.js (riavvio simulato su file e su un finto
+  Redis, 23:30 UTC del 31 ottobre = 1 novembre a Roma, Redis che non
+  risponde, server vero con Redis irraggiungibile) e una prova a mano
+  con un Redis vero in Docker: contatore conservato dopo il riavvio,
+  scadenza 172.800 secondi, rifiuto in pochi millisecondi con Redis
+  fermo.

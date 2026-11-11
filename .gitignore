@@ -22,3 +22,6 @@ Thumbs.db
 
 # Valutazioni delle risposte (dati degli utenti)
 backend/feedback.jsonl
+
+# Contatore dei token del giorno, se non si usa Redis (si ricrea da solo)
+backend/contatore_token.json

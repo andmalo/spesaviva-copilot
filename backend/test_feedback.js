@@ -18,6 +18,7 @@ const PORTA_DATA_AGENT = 3103;
 const URL = `http://127.0.0.1:${PORTA_BACKEND}`;
 const LIMITE = 18;            // richieste al minuto per questo test (bastano per tutte le verifiche prima del 429)
 const FILE = path.join(os.tmpdir(), `feedback_test_${process.pid}.jsonl`);
+const FILE_CONTATORE = path.join(os.tmpdir(), `contatore_feedback_test_${process.pid}.json`); // non tocca il contatore vero
 // Risposta lunga (oltre 500 caratteri) e senza cifre, così la guardia sui numeri non interviene
 const RISPOSTA_FINTA = "Ecco la procedura da seguire in negozio. " + "Controlla la merce e avvisa il responsabile. ".repeat(15);
 
@@ -85,6 +86,8 @@ async function main() {
       DATA_AGENT_PORT: String(PORTA_DATA_AGENT),
       LIMITE_RICHIESTE_MINUTO: String(LIMITE),
       FILE_FEEDBACK: FILE,
+      FILE_CONTATORE_TOKEN: FILE_CONTATORE,
+      REDIS_URL: "",
       // Log in JSON e al livello debug, per controllare le righe qui sotto
       LOG_FORMAT: "json",
       LOG_LEVEL: "debug",
@@ -199,6 +202,7 @@ async function main() {
     openaiFinto.close();
     dataAgentFinto.close();
     fs.rmSync(FILE, { force: true });
+    fs.rmSync(FILE_CONTATORE, { force: true });
   }
 }
 

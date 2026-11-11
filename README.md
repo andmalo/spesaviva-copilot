@@ -184,8 +184,11 @@ front end ed è l'unico servizio esposto; data agent e ChromaDB restano interni.
 avvio il manuale viene indicizzato (una chiamata di embedding).
 
 1. Su [render.com](https://render.com): **New** → **Blueprint** → collega questo repository
-   (Render legge `render.yaml`).
+   (Render legge `render.yaml` e crea due servizi: il servizio web e il Key Value
+   `spesaviva-contatori` per il contatore dei token; se il Blueprint esiste già, basta
+   un **Sync** per aggiungere il Key Value).
 2. Inserisci `OPENAI_API_KEY` quando richiesto (la chiave resta solo su Render).
+   `REDIS_URL` la imposta il Blueprint, con l'indirizzo interno del Key Value.
 3. Dopo la build l'app è su `https://spesaviva-copilot.onrender.com` (o l'indirizzo indicato da Render).
 
 Note: sul piano gratuito il servizio si addormenta dopo 15 minuti senza visite e il primo
@@ -193,6 +196,36 @@ accesso richiede circa un minuto. Restano attivi i limiti di sicurezza: 10 richi
 minuto per visitatore e tetto giornaliero di token. Il codice scritto dall'LLM gira con un
 utente separato, senza accesso alle variabili degli altri processi. Per un uso pubblico è
 consigliata una chiave OpenAI dedicata con un limite di spesa.
+
+### Il tetto giornaliero di token: dove sta il contatore
+
+Il tetto (`TETTO_TOKEN_GIORNALIERO`, predefinito 300.000 token) conta i token di
+orchestratore e data agent spesi **oggi**, dove "oggi" è sempre il giorno di Roma
+(fuso Europe/Rome), anche se il server usa UTC. Il contatore non sta nella memoria del
+processo, altrimenti ripartirebbe da zero a ogni riavvio:
+
+- **con `REDIS_URL`** (su Render): su Redis, una chiave per giorno (`token:2026-11-11`)
+  aumentata con `INCRBY` (operazione atomica) e cancellata da sola dopo 48 ore;
+- **senza `REDIS_URL`** (in locale): nel file `backend/contatore_token.json`
+  (escluso da git). Un file non basta su Render: sui servizi gratuiti, ogni volta che il
+  servizio si spegne, le modifiche al disco locale vanno perse, e i dischi persistenti
+  sono solo a pagamento.
+
+Se l'archivio del contatore non risponde (Redis spento o file illeggibile), per sicurezza
+le nuove richieste vengono **rifiutate** con il messaggio
+`Al momento non è possibile verificare il limite di spesa giornaliero dell'assistente: riprova tra qualche minuto.`
+(e una riga di errore nel log), invece di essere accettate senza limite.
+
+Limiti da conoscere:
+
+- il Key Value **gratuito** di Render tiene i dati solo in memoria, senza salvarli su
+  disco: se l'istanza si riavvia (succede di rado, per esempio per manutenzione, ma
+  succede) il contatore del giorno riparte da zero;
+- restano in memoria, e ripartono a ogni riavvio, la memoria delle conversazioni e il
+  limite di richieste al minuto;
+- la **protezione principale resta il limite di spesa impostato nella dashboard di
+  OpenAI** (Settings → Limits): il tetto dell'app riduce i consumi, quello di OpenAI li
+  blocca davvero.
 
 Prova in locale con gli stessi limiti del piano gratuito (512 MB, 0,1 CPU):
 
@@ -207,7 +240,7 @@ Senza chiamate a OpenAI:
 
 ```powershell
 cd data_agent; ..\.venv\Scripts\python.exe -m pytest   # pulizia, validazione, date degli scenari, briefing, soglie, confronto, grafici, sicurezza
-cd backend;    npm test                                  # log, scenari della demo e valutazioni (con un finto OpenAI)
+cd backend;    npm test                                  # log, tetto di token, scenari della demo e valutazioni (con un finto OpenAI)
 cd frontend;   npm run build; npm run lint
 ```
 

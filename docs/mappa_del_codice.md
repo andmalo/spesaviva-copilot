@@ -71,7 +71,12 @@ Memoria delle conversazioni (max 100, scadenza 1 ora, valida solo per lo stesso 
 
 ### `limiti.js`
 - `limiteFrequenza`: rate limit condiviso da chat, azioni e valutazioni.
-- `tokenUsatiOggi()`, `aggiungiTokenOggi()`, `controllaTettoGiornaliero()`: tetto di token del giorno.
+- `tokenUsatiOggi()`, `aggiungiTokenOggi()`, `controllaTettoGiornaliero()` (asincrone): tetto di token
+  del giorno di Roma (`giornoRoma()`), su un archivio che sopravvive ai riavvii; se l'archivio non
+  risponde, 503 `limite_spesa_non_verificabile`. I token non salvati restano in sospeso e si salvano dopo.
+- `creaArchivioRedis()` (con `REDIS_URL`: `INCRBY` su `token:AAAA-MM-GG`, scadenza 48 ore, timeout 2 s)
+  e `creaArchivioFile()` (senza: `backend/contatore_token.json`), con la stessa interfaccia
+  `leggi()` / `aggiungi()`; `creaContatoreToken()` lavora su una delle due.
 - `prenotaChiamate()`, `chiamateOpenAITotali()`: tetto facoltativo di chiamate OpenAI (`MAX_CHIAMATE_OPENAI`).
 
 ### `orchestratore.js`
@@ -154,6 +159,7 @@ function calling. Calibrati con i test: non si modificano senza ripetere i test.
 ### Test del back end
 - `test_scenari.js`: briefing, soglie e confronto per ogni scenario; scenari non validi rifiutati (nessuna chiamata a OpenAI).
 - `test_log.js`: formato dei log, requestId dal contesto, livello, filtro dei segreti, domanda troncata.
+- `test_limiti.js`: contatore dei token dopo un riavvio (file e finto Redis), mezzanotte di Roma, Redis che non risponde, server con Redis irraggiungibile.
 - `test_feedback.js`: valutazioni con il server vero, un finto OpenAI e un finto data agent locali (anche date in memoria, errore 503 se non arrivano, righe di log JSON con requestId uguale a quello ricevuto dal data agent).
 - `test_orchestratore.js`, `rag/test_ricerca.js`: con chiamate reali, da usare solo quando serve.
 
