@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test_log.js && node test_limiti.js && node test_scenari.js && node test_feedback.js"
+    "test": "node test_log.js && node test_limiti.js && node test_cache.js && node test_scenari.js && node test_feedback.js"
   },
   "license": "ISC",
   "type": "commonjs",

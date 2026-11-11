@@ -148,6 +148,27 @@ solo al livello `debug` compaiono le prime 200 battute della domanda.
 `/api/health`, `/api/scenari` e i grafici, chiamati spesso, hanno la riga
 di fine richiesta al livello `debug`.
 
+### Cache delle risposte
+
+Le risposte della chat restano in una cache in memoria (LRU), configurabile nel `.env`:
+`CACHE_MAX_VOCI` (voci massime, predefinito 200) e `CACHE_TTL_MINUTI` (scadenza,
+predefinito 60, al massimo 1440 perché i grafici si cancellano dopo 24 ore).
+
+- Vale solo per domande **identiche** dopo la normalizzazione (minuscole, spazi
+  ridotti, punteggiatura finale tolta), mai per domande "simili": "scarti di
+  ortofrutta" e "scarti di panetteria" sono vicinissime per significato, ma per numeri
+  e procedure restituire la risposta sbagliata è peggio di una chiamata in più.
+- La chiave contiene anche scenario, lingua, versione dei dati (impronta sha256 dei
+  dati del data agent, `GET /versione`), modelli di orchestratore e data agent e
+  versione dei prompt: se cambia uno di questi, la risposta vecchia non si usa.
+- Si usa solo all'inizio di una conversazione: con messaggi precedenti la stessa
+  domanda può voler dire altro.
+- Non si salvano risposte con errori, bloccate dal filtro dei segreti o con numeri
+  senza strumenti usati.
+- Una risposta dalla cache non consuma token e non conta nel tetto giornaliero (si
+  ottiene anche a tetto raggiunto), ma conta nel limite di richieste al minuto. Nel log
+  ha `cache=true`. Le azioni dei pulsanti (briefing, soglie, report) non usano la cache.
+
 ## In alternativa: avvio manuale dei servizi
 
 I servizi sono quattro e vanno avviati **in quest'ordine**, ognuno in un
@@ -240,7 +261,7 @@ Senza chiamate a OpenAI:
 
 ```powershell
 cd data_agent; ..\.venv\Scripts\python.exe -m pytest   # pulizia, validazione, date degli scenari, briefing, soglie, confronto, grafici, sicurezza
-cd backend;    npm test                                  # log, tetto di token, scenari della demo e valutazioni (con un finto OpenAI)
+cd backend;    npm test                                  # log, tetto di token, cache, scenari della demo e valutazioni (con un finto OpenAI)
 cd frontend;   npm run build; npm run lint
 ```
 

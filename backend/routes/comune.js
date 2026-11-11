@@ -32,8 +32,11 @@ function leggiScenario(id) {
  * @param {(dati: object, storico: Array, segnale: AbortSignal) => Promise<{esito: object, domanda: string,
  *   rispostaPerMemoria: string, rispostaPerFeedback: string, extra?: object}>} opzioni.esegui
  *   esegue la richiesta; extra si aggiunge al JSON della risposta
+ * @param {(dati: object, storico: Array) => Promise<object|null>} [opzioni.dallaCache]
+ *   risultato già pronto (stessa forma di esegui) oppure null. Si chiede PRIMA del tetto giornaliero:
+ *   una risposta dalla cache non consuma token e non conta nel tetto (conta solo nel limite di frequenza).
  */
-function gestisciRichiesta(feedback, { etichetta, valida, esegui }) {
+function gestisciRichiesta(feedback, { etichetta, valida, esegui, dallaCache }) {
   return async (req, res, next) => {
     const nome = etichetta(req);
 
@@ -50,9 +53,15 @@ function gestisciRichiesta(feedback, { etichetta, valida, esegui }) {
       if (c) c.scenario = dati.scenario.id;
       // Al livello debug, al massimo le prime 200 battute della domanda
       logger.debug({ domanda: taglia(dati.testo) }, `richiesta ricevuta: ${nome}`);
-      await controllaTettoGiornaliero();
       const storico = leggiSessione(dati.sessionId, dati.scenario);
-      const { esito, domanda, rispostaPerMemoria, rispostaPerFeedback, extra } = await esegui(dati, storico, controller.signal);
+      let risultato = dallaCache ? await dallaCache(dati, storico) : null;
+      if (risultato) {
+        if (c) c.cache = true;
+      } else {
+        await controllaTettoGiornaliero();
+        risultato = await esegui(dati, storico, controller.signal);
+      }
+      const { esito, domanda, rispostaPerMemoria, rispostaPerFeedback, extra } = risultato;
 
       // In memoria salvo solo domanda e risposta finale, e solo se la richiesta è riuscita:
       // così dopo si può chiedere in chat, per esempio, "e la settimana prima?"

@@ -92,6 +92,19 @@ function leggiPeriodo(argomentiJson) {
 // Ciclo di function calling
 // ---------------------------------------------------------------------------
 
+// Motivo per cui una risposta non va nella cache (routes/chat.js). È un Symbol: non finisce nel JSON per il front end.
+const NON_IN_CACHE = Symbol("nonInCache");
+
+/**
+ * Perché questa risposta non si può salvare in cache, oppure null se si può:
+ * errori (di uno strumento o del ciclo), risposte bloccate dal filtro, numeri senza strumenti usati.
+ */
+function motivoNonInCache(esito) {
+  if (esito[NON_IN_CACHE]) return esito[NON_IN_CACHE];
+  if (esito.strumenti.length === 0 && /\d/.test(esito.risposta ?? "")) return "numeri senza strumenti";
+  return null;
+}
+
 // Chiamate OpenAI che ogni strumento può fare nel caso peggiore, prenotate nel tetto di chiamate:
 // 5 per il data agent, 1 embedding per la ricerca, nessuna per i calcoli fatti solo con pandas
 const CHIAMATE_PER_STRUMENTO = {
@@ -147,6 +160,11 @@ async function chiamaModello(messaggi, segnale) {
  */
 async function eseguiStrumento(chiamata, esito, segnale, scenario) {
   const nome = chiamata.function?.name;
+  // Un errore restituito al modello: la risposta finale non va in cache
+  const errore = (testo) => {
+    esito[NON_IN_CACHE] ??= "errore di uno strumento";
+    return testo;
+  };
   // Parametri: nessuno (prepara_briefing), un periodo (controlla_soglie, confronta_negozi)
   // oppure la domanda (analizza_dati, cerca_procedure)
   const senzaParametri = STRUMENTI_SENZA_PARAMETRI.has(nome);
@@ -154,13 +172,13 @@ async function eseguiStrumento(chiamata, esito, segnale, scenario) {
   const periodo = conPeriodo ? leggiPeriodo(chiamata.function?.arguments) : null;
   const domanda = senzaParametri || conPeriodo ? null : leggiDomanda(chiamata.function?.arguments);
 
-  if (!STRUMENTI[nome]) return `Errore: lo strumento "${nome}" non esiste.`;
-  if (conPeriodo && !periodo) return "Errore: inizio e fine devono essere date nel formato AAAA-MM-GG.";
-  if (!senzaParametri && !conPeriodo && !domanda) return "Errore: manca il parametro obbligatorio \"domanda\".";
+  if (!STRUMENTI[nome]) return errore(`Errore: lo strumento "${nome}" non esiste.`);
+  if (conPeriodo && !periodo) return errore("Errore: inizio e fine devono essere date nel formato AAAA-MM-GG.");
+  if (!senzaParametri && !conPeriodo && !domanda) return errore("Errore: manca il parametro obbligatorio \"domanda\".");
 
   if (segnale.aborted) throw new RichiestaAnnullata();
   if (!prenotaChiamate(CHIAMATE_PER_STRUMENTO[nome])) {
-    return "Errore: raggiunto il numero massimo di chiamate consentite, lo strumento non è stato eseguito. Avvisa lo Store Manager.";
+    return errore("Errore: raggiunto il numero massimo di chiamate consentite, lo strumento non è stato eseguito. Avvisa lo Store Manager.");
   }
 
   // Per il front end: la domanda passata, oppure il periodo controllato
@@ -170,6 +188,8 @@ async function eseguiStrumento(chiamata, esito, segnale, scenario) {
     ? await STRUMENTI[nome](segnale, scenario.id)
     : await STRUMENTI[nome](periodo ?? domanda, segnale, scenario.id);
   if (segnale.aborted) throw new RichiestaAnnullata();
+  if (risultato.errore) esito[NON_IN_CACHE] ??= "errore di uno strumento";
+  if (risultato.bloccata) esito[NON_IN_CACHE] ??= "bloccata dal filtro";
 
   // Token del data agent: contano nella risposta e nel tetto giornaliero
   if (risultato.token) {
@@ -247,6 +267,7 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
 
     // Nessuno strumento richiesto: questa è la risposta finale
     if (chiamate.length === 0) {
+      if (!risposta.content?.trim()) esito[NON_IN_CACHE] ??= "risposta vuota";
       const testoFinale = risposta.content?.trim() || "Non sono riuscito a formulare una risposta. Prova a riformulare la domanda.";
 
       // Controllo fisso: cifre in euro o percentuale senza nessuno strumento usato = numeri inventati.
@@ -274,8 +295,9 @@ async function rispondi(storico, messaggio, segnale, lingua, scenario) {
   }
 
   // Non si arriva qui: l'ultima iterazione impone una risposta senza strumenti
+  esito[NON_IN_CACHE] ??= "risposta non completata";
   esito.risposta = "Non sono riuscito a completare la risposta. Prova a riformulare la domanda.";
   return esito;
 }
 
-module.exports = { rispondi, chiamaModello, componiMessaggi, dateDelloScenario };
+module.exports = { rispondi, chiamaModello, componiMessaggi, dateDelloScenario, motivoNonInCache, MODELLO_PROMPT, DEFINIZIONI_STRUMENTI };

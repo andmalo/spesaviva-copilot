@@ -83,3 +83,15 @@ def test_endpoint_scenario_non_valido(client):
     risposta = client.get("/scenari/inventato/date")
     assert risposta.status_code == 400
     assert risposta.json()["detail"] == "Scenario della demo non valido."
+
+
+def test_versione_per_la_cache_del_back_end(client, monkeypatch):
+    monkeypatch.setitem(app.stato, "impronta", "a" * 64)
+    monkeypatch.setitem(app.stato, "testo_prompt", "prompt di prova")
+    dati = client.get("/versione").json()
+    assert dati["impronta_dati"] == "a" * 64
+    assert dati["modello"] == app.modello_data_agent()
+    assert len(dati["prompt"]) == 64
+    # Un prompt diverso cambia la versione (e quindi la chiave della cache)
+    monkeypatch.setitem(app.stato, "testo_prompt", "prompt cambiato")
+    assert client.get("/versione").json()["prompt"] != dati["prompt"]

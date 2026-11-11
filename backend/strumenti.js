@@ -93,6 +93,7 @@ async function cerca_procedure(domanda, segnaleRichiesta) {
     return {
       testoPerLLM: "Errore: la ricerca nel manuale non è al momento disponibile. Avvisa lo Store Manager che non è possibile consultare le procedure e di riprovare più tardi.",
       fonti: [],
+      errore: true,
     };
   }
 
@@ -123,7 +124,7 @@ async function analizza_dati(domanda, segnaleRichiesta, scenario) {
       : "Errore: il servizio di analisi dei dati non risponde. Avvisa lo Store Manager che al momento non è possibile analizzare i dati del negozio e di riprovare più tardi."),
     nonRiuscita: (dettaglio) => `Errore: l'analisi dei dati non è riuscita (${dettaglio}). Avvisa lo Store Manager e non inventare numeri.`,
   });
-  if (testoErrore) return { testoPerLLM: testoErrore };
+  if (testoErrore) return { testoPerLLM: testoErrore, errore: true };
 
   return {
     testoPerLLM: dati.risposta,
@@ -135,6 +136,8 @@ async function analizza_dati(domanda, segnaleRichiesta, scenario) {
     // Solo per il log della richiesta (token in ingresso e in uscita)
     tokenIngresso: Number.isFinite(dati.token_ingresso) ? dati.token_ingresso : 0,
     tokenUscita: Number.isFinite(dati.token_uscita) ? dati.token_uscita : 0,
+    // Risposta bloccata dal filtro dei segreti del data agent: non va in cache
+    bloccata: dati.bloccata_dal_filtro === true,
   };
 }
 
@@ -239,7 +242,7 @@ async function prepara_briefing(segnaleRichiesta, scenario) {
     nonRaggiungibile: "Errore: il servizio che prepara il briefing non risponde. Avvisa lo Store Manager che al momento il briefing non è disponibile e di riprovare più tardi.",
     nonRiuscita: (dettaglio) => `Errore: il briefing non è stato preparato (${dettaglio}). Avvisa lo Store Manager e non inventare numeri.`,
   });
-  if (testoErrore) return { testoPerLLM: testoErrore };
+  if (testoErrore) return { testoPerLLM: testoErrore, errore: true };
 
   return {
     testoPerLLM: testoBriefing(dati),
@@ -265,7 +268,7 @@ async function controlla_soglie({ inizio, fine }, segnaleRichiesta, scenario) {
     nonRaggiungibile: "Errore: il controllo delle soglie non è disponibile. Avvisa lo Store Manager e non dire se le soglie sono superate.",
     nonRiuscita: (dettaglio) => `Errore nel controllo delle soglie: ${dettaglio}`,
   });
-  if (testoErrore) return { testoPerLLM: testoErrore };
+  if (testoErrore) return { testoPerLLM: testoErrore, errore: true };
 
   return {
     testoPerLLM: dati.testo,
@@ -287,7 +290,7 @@ async function confronta_negozi({ inizio, fine }, segnaleRichiesta, scenario) {
     nonRaggiungibile: "Errore: il confronto tra negozi non è disponibile. Avvisa lo Store Manager e non inventare numeri.",
     nonRiuscita: (dettaglio) => `Errore nel confronto tra negozi: ${dettaglio}`,
   });
-  if (testoErrore) return { testoPerLLM: testoErrore };
+  if (testoErrore) return { testoPerLLM: testoErrore, errore: true };
   return { testoPerLLM: dati.testo, calcolo: calcolo("regole", dati.regole) };
 }
 

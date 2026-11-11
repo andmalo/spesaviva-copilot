@@ -4,6 +4,7 @@
   (risposta, grafico disegnato dal codice, codice eseguito, token).
 - POST /briefing, /soglie, /confronto: calcoli deterministici, solo pandas, nessun LLM.
 - GET /scenari/{id}/date: date di riferimento dello scenario (calcolate solo qui, vedi date_scenario.py).
+- GET /versione: impronta dei dati, modello e hash del prompt (chiave della cache del back end).
 Ogni richiesta porta l'id dello scenario della demo (data di "oggi" e negozio).
 
 Avvio (dalla cartella principale del progetto, con il .venv attivo):
@@ -411,6 +412,17 @@ def health():
     return {"stato": "ok"}
 
 
+@app.get("/versione")
+def versione():
+    """Versione di dati e analisi, per la chiave della cache delle risposte del back end:
+    impronta sha256 dei dati puliti (la stessa del controllo di integrità), modello e hash del prompt."""
+    return {
+        "impronta_dati": stato["impronta"],
+        "modello": modello_data_agent(),
+        "prompt": hashlib.sha256(stato["testo_prompt"].encode("utf-8")).hexdigest(),
+    }
+
+
 @app.get("/scenari/{id_scenario}/date")
 def date_dello_scenario(id_scenario: str):
     """Date di riferimento dello scenario (ieri, inizio settimana, mese corrente, ultima settimana
@@ -448,6 +460,8 @@ def analizza(richiesta: Domanda, request: Request):
         # Solo per la riga di log del back end (token in ingresso e in uscita della richiesta)
         "token_ingresso": token["ingresso"],
         "token_uscita": token["uscita"],
+        # Risposta sostituita dal filtro dei segreti: il back end non la salva in cache
+        "bloccata_dal_filtro": risposta == MESSAGGIO_BLOCCATO,
         "codice": codice,  # mostrato come testo, mai eseguito dal front end
     }
 

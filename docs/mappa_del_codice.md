@@ -93,7 +93,7 @@ Il ciclo di function calling con l'LLM.
 - `comune.js`: `gestisciRichiesta()`, la struttura comune di chat e azioni (annullamento con
   AbortController, validazione, tetto giornaliero, memoria della sessione, id per i pollici, log);
   `leggiLingua()`, `leggiScenario()`.
-- `chat.js`: `POST /api/chat` (validazione del messaggio, poi `rispondi()`).
+- `chat.js`: `POST /api/chat` (validazione del messaggio, cache delle risposte con `GET /versione` del data agent, poi `rispondi()`).
 - `azioni.js`: `POST /api/azioni/:azione` (briefing, soglie, report con `azioni.js`).
 - `feedback.js`: `POST /api/feedback`.
 - `servizi.js`: `GET /api/grafici/:nome`, `GET /api/scenari`, `GET /api/health`.
@@ -124,6 +124,13 @@ Regole fisse applicate al testo dell'LLM.
 I tre scenari della demo ammessi (data di "oggi" e negozio), letti anche dal data agent
 e dal front end. Il browser invia solo l'id.
 - `trovaScenario()`. Nessun calcolo di date: lo fa il data agent.
+
+### `cache.js`
+Cache delle risposte della chat, in memoria: LRU con `CACHE_MAX_VOCI` voci e scadenza `CACHE_TTL_MINUTI`.
+Solo domande identiche dopo la normalizzazione, mai "simili" per significato.
+- `normalizzaDomanda()`, `chiaveCache()` (hash di domanda, scenario, lingua, versione dei dati, modelli, prompt).
+- `creaCache()` → `leggi()`, `salva()`: copie in entrata e in uscita.
+- Cosa non si salva lo decide `orchestratore.motivoNonInCache()` (errori, filtro, numeri senza strumenti).
 
 ### `log.js`
 Log strutturato (pino), livello e formato da `LOG_LEVEL` e `LOG_FORMAT`.
@@ -160,6 +167,7 @@ function calling. Calibrati con i test: non si modificano senza ripetere i test.
 - `test_scenari.js`: briefing, soglie e confronto per ogni scenario; scenari non validi rifiutati (nessuna chiamata a OpenAI).
 - `test_log.js`: formato dei log, requestId dal contesto, livello, filtro dei segreti, domanda troncata.
 - `test_limiti.js`: contatore dei token dopo un riavvio (file e finto Redis), mezzanotte di Roma, Redis che non risponde, server con Redis irraggiungibile.
+- `test_cache.js`: normalizzazione, scadenza ed espulsione LRU; con il server vero, finto OpenAI e finto data agent: risposta dalla cache senza chiamate, scenario o dati diversi, conversazione già iniziata, risposte non salvate, tetto raggiunto, `cache: true` nel log.
 - `test_feedback.js`: valutazioni con il server vero, un finto OpenAI e un finto data agent locali (anche date in memoria, errore 503 se non arrivano, righe di log JSON con requestId uguale a quello ricevuto dal data agent).
 - `test_orchestratore.js`, `rag/test_ricerca.js`: con chiamate reali, da usare solo quando serve.
 
@@ -170,7 +178,7 @@ function calling. Calibrati con i test: non si modificano senza ripetere i test.
 ### `app.py`
 Servizio FastAPI: configurazione sicura, copia dei dati per ogni richiesta,
 pandas agent e endpoint.
-- Endpoint: `/analizza`, `/briefing`, `/soglie`, `/confronto`, `/scenari/{id}/date`, `/health`, `/charts` (grafici).
+- Endpoint: `/analizza`, `/briefing`, `/soglie`, `/confronto`, `/scenari/{id}/date`, `/versione` (impronta dei dati, modello, hash del prompt: per la cache del back end), `/health`, `/charts` (grafici).
 - `esegui_analisi()`: crea il pandas agent (max 5 passi, timeout, nessun retry), filtra la risposta, estrae codice e grafico.
 - `nuova_copia_dati()`: copia nuova da bytes con controllo sha256, tagliata a "ieri" dello scenario.
 - `contiene_dati_riservati()`, `codice_eseguito()`: filtro dei segreti e codice per "Come l'ho calcolato".

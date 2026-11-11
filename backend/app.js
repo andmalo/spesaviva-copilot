@@ -30,7 +30,7 @@ function registraRichiesta(req, res, next) {
     strumenti: [],
     tokenIngresso: 0,
     tokenUscita: 0,
-    cache: false, // risposte dalla cache: parte 7 della revisione
+    cache: false, // true se la risposta viene dalla cache (routes/chat.js)
     codice: null,
   };
   res.locals.contesto = contesto;

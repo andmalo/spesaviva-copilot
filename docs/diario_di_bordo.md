@@ -283,3 +283,33 @@
   con un Redis vero in Docker: contatore conservato dopo il riavvio,
   scadenza 172.800 secondi, rifiuto in pochi millisecondi con Redis
   fermo.
+- Deploy: dopo il push e il Sync del Blueprint, Render ha creato il Key
+  Value; nei log online "archivio_contatore": "redis" e "archivio del
+  contatore dei token collegato", anche dopo un risveglio del servizio.
+
+## 2026-11-11 – Revisione dei docenti, parte 7: cache delle risposte
+- Problema: la stessa domanda (per esempio quella del pulsante "domande
+  rapide") costava ogni volta una o più chiamate a OpenAI.
+- Soluzione: backend/cache.js, cache LRU in memoria (CACHE_MAX_VOCI,
+  CACHE_TTL_MINUTI). La chiave è l'hash di domanda normalizzata,
+  scenario, lingua, versione dei dati, modelli di orchestratore e data
+  agent, versione dei prompt. La versione dei dati e il modello del
+  data agent li dà il data agent (GET /versione): l'impronta sha256 dei
+  dati puliti, la stessa del controllo di integrità.
+- Scelta: solo domande identiche, nessuna cache semantica con gli
+  embedding. "Scarti di ortofrutta" e "scarti di panetteria" sono molto
+  vicine per significato: restituire la risposta dell'altra domanda,
+  con numeri e procedure, è un errore peggiore di una chiamata in più.
+- Regole:
+  - solo all'inizio di una conversazione (con la memoria la stessa
+    domanda può voler dire altro);
+  - non si salvano risposte con errori (anche di uno strumento),
+    bloccate dal filtro dei segreti o con numeri senza strumenti usati;
+  - dalla cache: 0 token, non conta nel tetto e si ottiene anche a
+    tetto raggiunto, ma conta nel limite di richieste al minuto; nel
+    log cache: true;
+  - solo la chat: le azioni dei pulsanti restano senza cache;
+  - scadenza al massimo 24 ore, perché i grafici citati nelle
+    risposte si cancellano dopo 24 ore.
+- Verifica: test_cache.js (31 verifiche), più /versione nei test del
+  data agent; risposte invariate con lo script di confronto.

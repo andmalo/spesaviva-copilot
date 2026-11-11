@@ -44,6 +44,13 @@ const TETTO_TOKEN_GIORNALIERO = numeroDaEnv("TETTO_TOKEN_GIORNALIERO", 300_000);
 const MAX_CHIAMATE_OPENAI = process.env.MAX_CHIAMATE_OPENAI ? Number(process.env.MAX_CHIAMATE_OPENAI) : Infinity;
 
 const MODELLO = process.env.ORCHESTRATOR_MODEL;
+// Modello del data agent (stessa regola di data_agent/app.py), per la chiave della cache
+const MODELLO_DATA_AGENT = process.env.DATA_AGENT_MODEL || process.env.OPENAI_MODEL || "";
+
+// Cache delle risposte della chat (cache.js). La scadenza non supera le 24 ore:
+// i grafici citati nelle risposte si cancellano dopo 24 ore.
+const CACHE_MAX_VOCI = numeroDaEnv("CACHE_MAX_VOCI", 200);
+const CACHE_TTL_MINUTI = Math.min(numeroDaEnv("CACHE_TTL_MINUTI", 60), 24 * 60);
 
 // File delle valutazioni con i pollici (FILE_FEEDBACK solo per i test)
 const FILE_FEEDBACK = process.env.FILE_FEEDBACK || path.join(__dirname, "feedback.jsonl");
@@ -69,5 +76,6 @@ module.exports = {
   LUNGHEZZA_MASSIMA_MESSAGGIO, MESSAGGI_IN_MEMORIA, MAX_ITERAZIONI, MAX_TOKEN_RISPOSTA, TIMEOUT_OPENAI_MS,
   MAX_SESSIONI, SCADENZA_SESSIONE_MS, LINGUE,
   LIMITE_RICHIESTE_MINUTO, TETTO_TOKEN_GIORNALIERO, MAX_CHIAMATE_OPENAI, MODELLO, FILE_FEEDBACK,
+  MODELLO_DATA_AGENT, CACHE_MAX_VOCI, CACHE_TTL_MINUTI,
   controllaConfigurazione,
 };
