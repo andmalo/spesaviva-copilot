@@ -119,3 +119,18 @@
   - nelle azioni dirette il tetto MAX_CHIAMATE_OPENAI non conta gli
     embedding della ricerca, quindi il contatore del server sottostima
     le chiamate.
+
+## 2026-11-11 – Revisione dei docenti, parte 1: dipendenze e notebook
+- Cosa non funzionava: requirements.txt mescolava produzione e
+  sviluppo (jupyter, ipykernel, pytest), e il Dockerfile li toglieva
+  con un grep: fragile, bastava aggiungere uno strumento per
+  ritrovarlo nell'immagine.
+- Soluzione: requirements.txt solo con le dipendenze di produzione,
+  requirements-dev.txt con -r requirements.txt più gli strumenti di
+  sviluppo. Il Dockerfile installa solo requirements.txt, npm run
+  setup installa requirements-dev.txt (i test continuano a girare).
+- Il notebook di prototipazione è passato da data_agent/ a
+  notebooks/: non è codice del servizio. Nel notebook si aggiunge
+  data_agent/ al percorso dei moduli, per l'import di pulizia.
+  .gitattributes lo segna come documentazione, così GitHub non lo
+  conta nelle statistiche dei linguaggi.

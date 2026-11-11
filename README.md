@@ -54,9 +54,11 @@ manuale, azioni previste, eccedenze donate:
 ├── frontend/          ← interfaccia React
 ├── data/              ← dataset, script che lo genera, manuale operativo
 ├── docs/              ← diario di bordo, revisione di sicurezza, mappa del codice
+├── notebooks/         ← notebook della fase di prototipazione (solo documentazione)
 ├── test/              ← domande di test e risultati, esperimento sui modelli
 ├── .env.example       ← modello del file .env (chiavi mai su GitHub)
-└── requirements.txt   ← dipendenze Python
+├── requirements.txt   ← dipendenze Python di produzione (le sole installate nel Docker)
+└── requirements-dev.txt ← in più, strumenti di sviluppo: pytest, Jupyter
 ```
 
 ## Avvio con due comandi (consigliato)
@@ -72,7 +74,8 @@ npm run setup   # solo la prima volta (o dopo aver cambiato le dipendenze)
 npm start       # ogni volta che vuoi usare il progetto
 ```
 
-- `npm run setup` crea il `.venv` se manca, installa `requirements.txt`,
+- `npm run setup` crea il `.venv` se manca, installa `requirements-dev.txt`
+  (cioè `requirements.txt` più pytest e Jupyter, che servono per i test),
   esegue `npm install` in `backend` e `frontend`, avvia ChromaDB,
   indicizza il manuale e ferma ChromaDB. L'indicizzazione usa gli embedding
   OpenAI, quindi si fa **solo se la collezione del manuale non esiste
@@ -113,7 +116,7 @@ La prima volta, installa le dipendenze:
 
 ```powershell
 python -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
 cd backend;  npm install;  cd ..
 cd frontend; npm install;  cd ..
 ```

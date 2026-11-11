@@ -18,11 +18,10 @@ FROM python:3.13-slim-bookworm
 WORKDIR /app
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
 
-# Dipendenze Python, senza quelle che servono solo al notebook e ai test
+# Dipendenze Python di produzione (notebook e test sono in requirements-dev.txt)
 COPY requirements.txt .
 RUN python -m venv .venv \
- && grep -viE "^(jupyter|ipykernel|pytest)==" requirements.txt > /tmp/requisiti.txt \
- && .venv/bin/pip install --no-cache-dir -r /tmp/requisiti.txt
+ && .venv/bin/pip install --no-cache-dir -r requirements.txt
 
 COPY --from=node /app/backend/node_modules backend/node_modules
 COPY --from=node /app/frontend/dist frontend/dist

@@ -1,0 +1,3 @@
+# Il notebook di prototipazione è documentazione: GitHub non lo conta nelle statistiche dei linguaggi
+notebooks/** linguist-documentation
+*.ipynb linguist-documentation

@@ -1,6 +1,7 @@
 // Installazione e avvio del progetto con un solo comando (Windows, macOS e Linux).
 //
-//   npm run setup     crea il .venv se manca, installa le dipendenze Python e Node,
+//   npm run setup     crea il .venv se manca, installa le dipendenze Python (anche quelle
+//                     di sviluppo, requirements-dev.txt) e Node,
 //                     indicizza il manuale in ChromaDB se la collezione non esiste ancora
 //                     (npm run setup -- --reindicizza per rifarla da capo)
 //   npm start         avvia ChromaDB, data agent, back end e front end, in quest'ordine,
@@ -184,7 +185,8 @@ async function setup() {
   } else {
     console.log('[setup] Ambiente virtuale .venv già presente')
   }
-  esegui('Dipendenze Python (requirements.txt)', PYTHON_VENV, ['-m', 'pip', 'install', '-r', 'requirements.txt'])
+  // In locale anche gli strumenti di sviluppo (test, notebook): requirements-dev.txt include requirements.txt
+  esegui('Dipendenze Python (requirements-dev.txt)', PYTHON_VENV, ['-m', 'pip', 'install', '-r', 'requirements-dev.txt'])
   esegui('Dipendenze del back end', 'npm', ['install'], path.join(CARTELLA, 'backend'))
   esegui('Dipendenze del front end', 'npm', ['install'], path.join(CARTELLA, 'frontend'))
 

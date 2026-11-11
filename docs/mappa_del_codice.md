@@ -33,9 +33,15 @@ ognuno sia pronto e con Ctrl+C li ferma tutti.
 - `avvia()`, `fermaTutti()`: processi figli con prefisso nel log e arresto dell'albero dei processi.
 - `attendiPronto()`, `controllaPorteLibere()`, `leggiConfigurazione()` (controlla il `.env` senza stampare la chiave).
 
-### `package.json`, `requirements.txt`, `.env.example`
-Script `setup` e `start`; dipendenze Python con versioni fissate (pandas 3.0.5
-per Smart App Control); modello del `.env` (porte, modelli, limiti).
+### `package.json`, `requirements.txt`, `requirements-dev.txt`, `.env.example`
+Script `setup` e `start`; dipendenze Python di produzione con versioni fissate
+(pandas 3.0.5 per Smart App Control), le sole installate nell'immagine Docker;
+dipendenze di sviluppo (pytest, Jupyter), installate in locale da `npm run setup`;
+modello del `.env` (porte, modelli, limiti).
+
+### `.gitattributes`
+Segna il notebook come documentazione, così GitHub non lo conta nelle
+statistiche dei linguaggi.
 
 ---
 
@@ -134,9 +140,10 @@ Pulizia del CSV in memoria (il file non si modifica): date in tre formati, nomi
 dei negozi, duplicati, valori impossibili e anomali, colonna `settimana`.
 - `pulisci_dati()`, `riepilogo_pulizia()`.
 
-### `prompt_data_agent.txt`, `prototipo_data_agent.ipynb`, `tests/`
-Prompt del pandas agent (calibrato con i test); notebook della fase di
-prototipazione; test pytest (pulizia, briefing, soglie, confronto, grafici, sicurezza).
+### `prompt_data_agent.txt`, `tests/`
+Prompt del pandas agent (calibrato con i test); test pytest (pulizia, briefing,
+soglie, confronto, grafici, sicurezza). Il notebook della fase di prototipazione
+è in `notebooks/prototipo_data_agent.ipynb`, nella radice del repository.
 
 ---
 
