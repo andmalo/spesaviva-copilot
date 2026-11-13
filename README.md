@@ -282,6 +282,9 @@ Con chiamate reali a OpenAI (a pagamento, da eseguire solo quando serve):
 - `docs/mappa_del_codice.md` – a cosa serve ogni file e il percorso di una richiesta
 - `docs/diario_di_bordo.md` – problemi incontrati, decisioni e motivi
 - `docs/revisione.md` – revisione di sicurezza e correzioni
+- `docs/benchmark.md` – tempi e memoria della parte pandas con dataset fino a 100 volte quello attuale,
+  e quando avrebbe senso passare a DuckDB o SQLite (si rigenera con
+  `.\.venv\Scripts\python.exe data_agent\benchmark\benchmark.py`, senza chiamate a OpenAI)
 - `test/domande_test.md` – le 20 domande di test e i risultati
 - `test/esperimento_modelli.md` – confronto tra gpt-4.1-mini e gpt-4.1
 - `backend/riepilogo_feedback.js` – riepilogo delle valutazioni con i pollici, per strumento

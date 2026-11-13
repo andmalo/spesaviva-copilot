@@ -245,6 +245,12 @@ Prompt del pandas agent (calibrato con i test); test pytest (pulizia, validazion
 date degli scenari, briefing, soglie, confronto, grafici, sicurezza). Il notebook della fase di prototipazione
 è in `notebooks/prototipo_data_agent.ipynb`, nella radice del repository.
 
+### `benchmark/benchmark.py`
+Benchmark della parte pandas (nessuna chiamata a OpenAI): dataset 1×, 10×, 50×, 100× ottenuti
+duplicando il CSV con negozi nuovi e le stesse date; tempo (mediana di 5 ripetizioni) e picco di
+memoria (tracemalloc) di caricamento e pulizia, validazione, copia per una richiesta, briefing,
+soglie, confronto e tasso di scarto mensile. Scrive `docs/benchmark.md` e `docs/benchmark.png`.
+
 ---
 
 ## frontend/ – Interfaccia (React + Vite)

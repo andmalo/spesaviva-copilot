@@ -9,5 +9,6 @@ chroma_data
 data_agent/charts
 backend/feedback.jsonl
 notebooks
+data_agent/benchmark
 docs
 test

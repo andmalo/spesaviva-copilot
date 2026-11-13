@@ -336,3 +336,35 @@
 - Verifica: test_pulizia_grafici.py (file finti vecchi e nuovi, errore
   di cancellazione simulato, task periodico che si ferma pulito, giro
   subito all'avvio) e una prova del ciclo di vita vero del servizio.
+
+## 2026-11-13 – Revisione dei docenti, parte 9: benchmark delle prestazioni
+- Obiettivo: sapere fino a che dimensione dei dati pandas basta, con
+  numeri misurati e non stimati. Risultati in docs/benchmark.md.
+- Script: data_agent/benchmark/benchmark.py. Dataset 1×, 10×, 50×,
+  100× (da 4.375 a 437.500 righe) duplicando il CSV con negozi nuovi
+  (NEG07, NEG08, ...) e le stesse date: con le date spostate la
+  validazione (2020-oggi) avrebbe rifiutato i dati. Le copie restano
+  sporche come l'originale, così la pulizia lavora davvero.
+- Misure: mediana di 5 ripetizioni (con minimo e massimo) e picco con
+  tracemalloc di caricamento e pulizia, validazione, copia dei dati
+  per una richiesta, briefing, soglie, confronto, tasso di scarto
+  mensile. Ho aggiunto la copia per richiesta, che il prompt non
+  elencava, perché nel servizio ogni richiesta la fa prima
+  dell'operazione: il costo vero di una richiesta è la somma.
+- Problema nelle misure: nelle prime esecuzioni, fatte una dimensione
+  dopo l'altra, i tempi cambiavano molto (caricamento a 100×: 11,3 s
+  nella prima esecuzione, 6,3 s nella seconda) e in una esecuzione le
+  operazioni a 100× risultavano più veloci che a 50×. Il minimo e il
+  massimo del briefing a 100× (0,40-1,63 s) mostravano che il portatile
+  aveva cambiato velocità a metà misura. Soluzione: preparare tutte le
+  dimensioni e fare le ripetizioni a rotazione (ripetizione 1 di tutte
+  le dimensioni, poi la 2, ...), così un cambiamento colpisce tutte le
+  dimensioni allo stesso modo. Dopo, i tempi crescono in modo regolare
+  e minimo e massimo sono vicini alla mediana.
+- Conclusioni (dai numeri, uguali in tutte le esecuzioni): fino a 10×
+  ogni richiesta resta sotto 1 s; da 50× briefing e confronto tra
+  negozi superano 1 s; la memoria resta sotto 512 MB fino a 100× (266
+  MB durante una richiesta, senza contare il processo stesso). Quindi
+  DuckDB o SQLite avrebbero senso da circa 50 volte i dati attuali,
+  da verificare con lo stesso benchmark. I tempi sono del portatile:
+  sul piano gratuito di Render (0,1 CPU) non sono misurati.
