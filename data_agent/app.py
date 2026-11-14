@@ -73,6 +73,7 @@ VARIABILI_PUBBLICHE = {
     "BACKEND_PORT", "DATA_AGENT_PORT", "CHROMA_PORT",
     "LIMITE_RICHIESTE_MINUTO", "TETTO_TOKEN_GIORNALIERO",
     "LOG_LEVEL", "LOG_FORMAT", "PULIZIA_GRAFICI_MINUTI",
+    "CACHE_MAX_VOCI", "CACHE_TTL_MINUTI", "MAX_CHIAMATE_OPENAI",
 }
 for _nome in VARIABILI_PUBBLICHE:
     if VALORI_ENV.get(_nome) and _nome not in os.environ:
@@ -90,7 +91,8 @@ if os.environ.get("CHIAVE_DA_STDIN") == "1":
 # Valori che non devono mai comparire in una risposta (quelli molto corti si ignorano,
 # per non bloccare risposte normali)
 VALORI_RISERVATI = sorted(
-    {v for k, v in VALORI_ENV.items() if k not in VARIABILI_PUBBLICHE and v and len(v) >= 6}
+    # Mai i valori fatti solo di cifre: non sono segreti, e bloccherebbero risposte con quel numero
+    {v for k, v in VALORI_ENV.items() if k not in VARIABILI_PUBBLICHE and v and len(v) >= 6 and not v.isdigit()}
     | ({_CHIAVE_OPENAI} if _CHIAVE_OPENAI else set()),
     key=len, reverse=True,
 )

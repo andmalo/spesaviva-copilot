@@ -30,12 +30,15 @@ function formatoDaEnv() {
 // --- Filtro dei segreti ---------------------------------------------------------
 // Stessa regola del data agent (contiene_dati_riservati): "sk-" (inizio delle chiavi OpenAI)
 // e i valori delle variabili riservate. Qui le variabili riservate sono quelle con nomi da segreto.
-const NOMI_RISERVATI = /KEY|TOKEN|SECRET|PASSWORD|REDIS_URL/i;
+// Solo i nomi che FINISCONO come un segreto (OPENAI_API_KEY, GITHUB_TOKEN...): TETTO_TOKEN_GIORNALIERO
+// contiene "TOKEN" ma è un numero pubblico, e oscurarlo rompeva il JSON della riga.
+const NOMI_RISERVATI = /(KEY|TOKEN|SECRET|PASSWORD)$|^REDIS_URL$/i;
 const SEGNAPOSTO = "[riservato]";
 
 function valoriRiservati() {
   return Object.entries(process.env)
-    .filter(([nome, valore]) => NOMI_RISERVATI.test(nome) && valore && valore.length >= 6)
+    // Mai i valori fatti solo di cifre: non sono segreti, e sostituirli toccherebbe numeri qualsiasi nei log
+    .filter(([nome, valore]) => NOMI_RISERVATI.test(nome) && valore && valore.length >= 6 && !/^\d+$/.test(valore))
     .map(([, valore]) => valore)
     .sort((a, b) => b.length - a.length);
 }
@@ -87,7 +90,12 @@ function valoreLeggibile(valore) {
 }
 
 function rigaLeggibile(riga) {
-  const dati = JSON.parse(riga);
+  let dati;
+  try {
+    dati = JSON.parse(riga);
+  } catch {
+    return riga.endsWith("\n") ? riga : `${riga}\n`; // il log non deve mai fermare il servizio: si scrive com'è
+  }
   const ora = typeof dati.time === "string" ? dati.time.slice(11, 19) : "";
   const campi = Object.entries(dati)
     .filter(([chiave]) => !CAMPI_FISSI.has(chiave))
@@ -121,4 +129,5 @@ const logger = creaLogger();
 
 module.exports = {
   logger, creaLogger, oscura, taglia, archivioContesto, contesto, intestazioniRichiesta, aggiungiTokenRichiesta,
+  rigaLeggibile, // per i test
 };

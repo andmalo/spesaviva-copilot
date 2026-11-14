@@ -368,3 +368,28 @@
   DuckDB o SQLite avrebbero senso da circa 50 volte i dati attuali,
   da verificare con lo stesso benchmark. I tempi sono del portatile:
   sul piano gratuito di Render (0,1 CPU) non sono misurati.
+
+## 2026-11-14 – Verifica finale da un clone pulito
+- Metodo: git clone in una cartella nuova, .env copiato da .env.example
+  con chiave e modelli, poi solo i comandi del README.
+- Problema 1, il back end non partiva: il filtro dei segreti dei log
+  (parte 5) trattava come riservata ogni variabile con "TOKEN" nel
+  nome, quindi anche TETTO_TOKEN_GIORNALIERO=300000 di .env.example. Il
+  numero diventava [riservato] senza virgolette dentro la riga JSON, il
+  formattatore leggibile andava in errore e fermava il back end. Nel
+  progetto di sviluppo non si vedeva perché il suo .env non ha quella
+  riga, e i test usavano tetti più corti di 6 cifre.
+  - Correzione: riservati solo i nomi che finiscono per KEY, TOKEN,
+    SECRET o PASSWORD (più REDIS_URL), mai i valori fatti solo di cifre;
+    il formattatore scrive com'è una riga non JSON invece di fermare il
+    servizio. Nel data agent le variabili di cache e
+    MAX_CHIAMATE_OPENAI sono pubbliche e i numeri non sono mai
+    riservati (prima un valore come CACHE_MAX_VOCI=1000000 avrebbe
+    bloccato le risposte con quel numero).
+  - Test: test_log.js con TETTO_TOKEN_GIORNALIERO=300000 (senza la
+    correzione fallisce con lo stesso errore del clone) e un test in
+    test_registro.py.
+- Problema 2, solo su Windows: con il clone in una cartella dal
+  percorso lungo, pip non riusciva a installare Jupyter (file oltre i
+  260 caratteri). Nel README: tenere il progetto in un percorso corto
+  o abilitare i percorsi lunghi di Windows.

@@ -95,6 +95,13 @@ npm start       # ogni volta che vuoi usare il progetto
 Lo script funziona su Windows, macOS e Linux (Python del `.venv` in
 `Scripts\python.exe` su Windows e in `bin/python` altrove).
 
+Su Windows tieni il progetto in una cartella con un percorso corto (per
+esempio `C:\progetti\spesaviva`): Jupyter, tra le dipendenze di sviluppo,
+installa file con nomi molto lunghi, e se il percorso totale supera i 260
+caratteri `npm run setup` si ferma con `OSError: [Errno 2] No such file or
+directory`. In alternativa abilita i percorsi lunghi di Windows
+(<https://pip.pypa.io/warnings/enable-long-paths>).
+
 ### Controllo
 
 Con i servizi avviati, <http://localhost:5173/api/health> deve rispondere:

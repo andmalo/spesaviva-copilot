@@ -3,7 +3,12 @@
 //
 // Uso (dalla cartella backend):  node test_log.js
 process.env.CHIAVE_DI_PROVA_KEY = "valore-riservato-di-prova";
-const { creaLogger, oscura, taglia, archivioContesto, intestazioniRichiesta, aggiungiTokenRichiesta } = require("./log");
+process.env.GITHUB_DI_PROVA_TOKEN = "token-riservato-di-prova";
+// Come in .env.example: il nome contiene TOKEN ma il valore è un numero pubblico (prima rompeva il JSON del log)
+process.env.TETTO_TOKEN_GIORNALIERO = "300000";
+const {
+  creaLogger, oscura, taglia, archivioContesto, intestazioniRichiesta, aggiungiTokenRichiesta, rigaLeggibile,
+} = require("./log");
 
 let falliti = 0;
 function verifica(descrizione, ok) {
@@ -56,6 +61,20 @@ const s = righeSegrete[0];
 verifica("niente chiavi sk-... né valori riservati nella riga", !s.includes("sk-proj") && !s.includes("sk-xyz")
   && !s.includes("valore-riservato-di-prova") && (s.match(/\[riservato\]/g) ?? []).length === 3);
 verifica("parole come task-list restano intatte", oscura("task-list") === "task-list");
+verifica("valore di una variabile che finisce per _TOKEN oscurato", oscura("x token-riservato-di-prova y") === "x [riservato] y");
+
+console.log("\nNumeri pubblici con TOKEN nel nome (TETTO_TOKEN_GIORNALIERO=300000)");
+const righeTetto = [];
+creaLogger({ livello: "info", formato: "json", scrivi: scriviIn(righeTetto) }).info({ tetto_token: 300000 }, "avvio");
+let tetto = null;
+try { tetto = JSON.parse(righeTetto[0]).tetto_token; } catch { /* JSON rotto */ }
+verifica(`la riga resta JSON valido e il numero resta visibile (${tetto})`, tetto === 300000);
+const righeTettoLeggibili = [];
+creaLogger({ livello: "info", formato: "leggibile", scrivi: scriviIn(righeTettoLeggibili) }).info({ tetto_token: 300000 }, "avvio");
+verifica("anche nel formato leggibile", righeTettoLeggibili[0]?.includes("tetto_token=300000"));
+let lettaRigaRotta = null;
+try { lettaRigaRotta = rigaLeggibile("{ non è json"); } catch { /* il formattatore non deve mai lanciare */ }
+verifica("una riga non JSON si scrive com'è, senza fermare il servizio", lettaRigaRotta === "{ non è json\n");
 
 console.log("\nDomanda al livello debug");
 verifica("al massimo 200 battute", taglia("a".repeat(500)) === `${"a".repeat(200)}…` && taglia("breve") === "breve");

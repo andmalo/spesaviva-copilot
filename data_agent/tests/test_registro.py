@@ -98,3 +98,12 @@ def test_livello_e_formato_dal_env(monkeypatch):
 def test_nessuna_print_nel_data_agent():
     for file in app.CARTELLA_AGENTE.glob("*.py"):
         assert "print(" not in file.read_text(encoding="utf-8"), file.name
+
+
+def test_numeri_e_variabili_pubbliche_non_sono_riservati():
+    # TETTO_TOKEN_GIORNALIERO=300000 (in .env.example) e le variabili di cache e log sono pubbliche:
+    # i loro valori non devono bloccare risposte né sparire dai log
+    for nome in ("TETTO_TOKEN_GIORNALIERO", "CACHE_MAX_VOCI", "CACHE_TTL_MINUTI", "MAX_CHIAMATE_OPENAI",
+                 "LOG_LEVEL", "LOG_FORMAT", "PULIZIA_GRAFICI_MINUTI"):
+        assert nome in app.VARIABILI_PUBBLICHE
+    assert not any(valore.isdigit() for valore in app.VALORI_RISERVATI)
