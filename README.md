@@ -269,6 +269,12 @@ docker build -t spesaviva-copilot .
 docker run --rm --memory=512m --cpus=0.1 -p 10000:10000 --env-file .env spesaviva-copilot
 ```
 
+Con 0,1 CPU l'avvio è lento: in una prova circa 1 minuto e mezzo (ChromaDB 15 s,
+indicizzazione 8 s, data agent 47 s, back end 9 s), di più al primo avvio di Docker. In
+produzione `avvia.mjs` aspetta fino a 5 minuti per ogni servizio (in locale 2) prima di
+considerarlo fermo. Con il comando sopra, al primo avvio il manuale si indicizza (una
+chiamata di embedding).
+
 ## Test
 
 Senza chiamate a OpenAI:

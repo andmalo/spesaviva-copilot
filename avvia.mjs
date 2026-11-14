@@ -19,7 +19,10 @@ const VENV = path.join(CARTELLA, '.venv')
 const BIN_VENV = path.join(VENV, WINDOWS ? 'Scripts' : 'bin')
 const PYTHON_VENV = path.join(BIN_VENV, WINDOWS ? 'python.exe' : 'python')
 const CHROMA_VENV = path.join(BIN_VENV, WINDOWS ? 'chroma.exe' : 'chroma')
-const ATTESA_MASSIMA_MS = 120_000 // tempo massimo perché un servizio sia pronto
+// Tempo massimo perché un servizio sia pronto. In produzione (Render gratuito, 0,1 CPU) un avvio a freddo,
+// dopo che il servizio si è addormentato, è molto più lento: 5 minuti per servizio. In locale bastano
+// 2 minuti, così un errore vero si vede presto.
+const ATTESA_MASSIMA_MS = process.argv[2] === 'produzione' ? 300_000 : 120_000
 const NOME_COLLEZIONE = 'procedure_spesaviva'
 
 // --- .env --------------------------------------------------------------------

@@ -393,3 +393,12 @@
   percorso lungo, pip non riusciva a installare Jupyter (file oltre i
   260 caratteri). Nel README: tenere il progetto in un percorso corto
   o abilitare i percorsi lunghi di Windows.
+- Problema 3, il contenitore con --cpus=0.1 (il comando del README) si
+  è fermato: "ChromaDB non è pronto dopo 120 secondi". Misure dopo:
+  ChromaDB da solo è pronto in 17 s, e il contenitore completo in 86 s
+  (ChromaDB 15 s, indicizzazione 8 s, data agent 47 s, back end 9 s).
+  Il primo fallimento era un avvio a freddo, con Docker appena acceso:
+  è la stessa situazione di Render a ogni risveglio. Soluzione: in
+  produzione avvia.mjs aspetta fino a 5 minuti per servizio (in locale
+  restano 2, per vedere presto un errore vero). Con 512 MB e 0,5 CPU
+  il contenitore usa 272 MB.
